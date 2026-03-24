@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Personal calibration & test data
+homography.npy
+saved_writings/*.csv
+saved_writings/*.png
+
+# Personal files
+*.HEIC
+*.pdf
+*.tex
+*.tgz
+final_debug_comparison.png
+copilot-instructions.md
+report.tex
+
+# Debug/probe scripts
+probe.py
+probe_direct.py
+
+# Claude Code
+.claude/
+
+# Editor
+.vscode/
