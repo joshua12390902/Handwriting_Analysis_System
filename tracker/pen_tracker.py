@@ -103,6 +103,11 @@ class PenTracker:
         self.history: List[np.ndarray] = []
         self.idx_history: List[int] = []
 
+        # Hysteresis pen state machine
+        self._pen_state: bool = False   # 目前確認的筆狀態（True=下筆）
+        self._pen_raw:   bool = False   # 上一幀的原始訊號
+        self._pen_confirm: int = 0      # 連續同方向幀數
+
         # 目前題目
         self.curr_char = state.global_target_char
         self.curr_hex  = state.global_target_hex
@@ -176,6 +181,9 @@ class PenTracker:
         self.idx_history  = [0]
         self.strokes_data = []
         self.stroke_count = 0
+        self._pen_state   = False
+        self._pen_raw     = False
+        self._pen_confirm = 0
 
     def trigger_record(self) -> None:
         self.is_recording = not self.is_recording
@@ -368,6 +376,26 @@ class PenTracker:
                     "result_ts": int(time.time() * 1000),
                 }
 
+    # ── Hysteresis 輔助 ───────────────────────────────────────────────
+
+    def _update_pen_hysteresis(self, raw_down: bool) -> None:
+        """更新 pen-state 狀態機（含 hysteresis）。"""
+        FRAMES_TO_DOWN = 4
+        FRAMES_TO_UP   = 3
+        if raw_down == self._pen_raw:
+            self._pen_confirm += 1
+        else:
+            self._pen_raw     = raw_down
+            self._pen_confirm = 1
+        if not self._pen_state and raw_down and self._pen_confirm >= FRAMES_TO_DOWN:
+            self._pen_state = True
+        elif self._pen_state and not raw_down and self._pen_confirm >= FRAMES_TO_UP:
+            self._pen_state = False
+
+    def _force_pen_up(self) -> None:
+        """無輪廓或面積太小時，直接送 pen-up 訊號給狀態機。"""
+        self._update_pen_hysteresis(False)
+
     # ── 主迴圈 ────────────────────────────────────────────────────────
 
     def run(self) -> None:
@@ -470,12 +498,15 @@ class PenTracker:
                     delta = cx - (frame.shape[1] // 2)
                     thr   = max(100, BASE_THRESHOLD + delta * LINEAR_COMPENSATION)
 
-                    if not (-20 <= tx <= 660 and -20 <= ty <= 500):
-                        msg.z = 0.0
-                    elif area < thr:
-                        msg.z = 1.0; writing = True; color = (0, 255, 0)
-                    else:
-                        msg.z = 0.0; color = (0, 0, 255)
+                    in_bounds = (-20 <= tx <= 660 and -20 <= ty <= 500)
+                    raw_down  = in_bounds and (area < thr)
+
+                    # Hysteresis 狀態機：UP→DOWN 需 4 幀，DOWN→UP 需 3 幀
+                    self._update_pen_hysteresis(raw_down)
+
+                    msg.z = 1.0 if self._pen_state else 0.0
+                    writing = self._pen_state
+                    color   = (0, 255, 0) if writing else (0, 0, 255)
                     msg.x, msg.y = tx, ty
 
                     if writing and paper_ready_now:
@@ -487,10 +518,13 @@ class PenTracker:
 
                     cv2.circle(frame, (cx, cy), 10, color, 2)
                 else:
+                    self._force_pen_up()
                     self.last_pos = None
             else:
+                self._force_pen_up()
                 self.last_pos = None
         else:
+            self._force_pen_up()
             self.last_pos = None
 
         # ── 筆畫歷史 & 雜訊過濾 ───────────────────────────────────────

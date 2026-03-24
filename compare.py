@@ -379,14 +379,13 @@ def make_user_message_order_by_swaps(
 def make_user_message_order_by_idx(char: str, wrong_idx: int, wrong_score: float, t_min: float) -> str:
     return (
         f"錯誤：你寫的「{char}」第 {wrong_idx + 1} 筆筆順/寫法不正確 "
-        f"(score={wrong_score:.3f} < t_min={t_min:.2f})。"
     )
 
 
 def make_user_message_wrong_char(char: str, final_score: float, T_char: float) -> str:
     return (
         f"錯誤：你寫的筆畫數與筆順看似合理，但整體不像「{char}」 "
-        f"(final_score={final_score:.3f} < T_char={T_char:.2f})，請重寫。"
+        f"請重寫。"
     )
 
 

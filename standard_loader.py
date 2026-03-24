@@ -17,17 +17,7 @@ def load_standard_entry(char_id: str):
         except json.JSONDecodeError:
             pass
 
-    if not AGGREGATE_DB.exists():
-        raise FileNotFoundError(
-            f"Standard data not found for '{char_id}': {path.resolve()} and {AGGREGATE_DB.resolve()}"
-        )
-
-    with AGGREGATE_DB.open("r", encoding="utf-8") as f:
-        all_data = json.load(f)
-
-    if char_id in all_data:
-        return all_data[char_id]
-
+    # 直接從 hanzi/ 原始資料讀取
     raw_path = RAW_HANZI_DIR / f"{char_id}.json"
     if raw_path.exists():
         with raw_path.open("r", encoding="utf-8") as f:
@@ -36,8 +26,15 @@ def load_standard_entry(char_id: str):
         if medians:
             return {"strokes": medians}
 
+    # 最後嘗試 aggregate DB（若存在）
+    if AGGREGATE_DB.exists():
+        with AGGREGATE_DB.open("r", encoding="utf-8") as f:
+            all_data = json.load(f)
+        if char_id in all_data:
+            return all_data[char_id]
+
     raise FileNotFoundError(
-        f"Standard data not found for '{char_id}' in {AGGREGATE_DB.resolve()} or {raw_path.resolve()}"
+        f"Standard data not found for '{char_id}': tried {raw_path.resolve()} and {AGGREGATE_DB.resolve()}"
     )
 
 def load_standard(char_id: str):
