@@ -9,7 +9,7 @@
 - 按 **下一題** 從 9500+ 字資料集隨機抽題
 - 評分結果分類：
   - `STROKE_COUNT_MISMATCH`：筆畫數錯誤
-  - `ORDER_WRONG`：筆順不對（含具體對調建議，例如「第2筆與第4筆對調」）
+  - `ORDER_WRONG`：筆順不對（標示具體哪幾筆位置錯誤）
   - `WRONG_CHARACTER`：整體不像目標字
   - `OK`：通過
 - 每次送分自動存檔至 `saved_writings/`（CSV 軌跡 + 筆跡圖）
@@ -28,7 +28,7 @@ python -m venv .venv
 
 ## 啟動
 ```powershell
-.\.venv\Scripts\python.exe pen_tracker_mediapipe.py
+.\.venv\Scripts\python.exe app.py
 ```
 開啟瀏覽器：`http://127.0.0.1:5000`
 
@@ -38,11 +38,22 @@ python -m venv .venv
 3. 書寫畫面上顯示的目標字
 4. 按 **Send** 送出評分
 5. 結果即時顯示在網頁，並自動存至 `saved_writings/`
+6. 按 **下一題** 隨機換字繼續練習
 
 ## 專案結構
 ```
-pen_tracker_mediapipe.py   主程式（Flask + OpenCV 即時追蹤）
-compare.py                 評分核心（DTW、筆順比對、離群過濾）
+app.py                     入口點（啟動 Flask + 攝影機迴圈）
+state.py                   共用全域狀態與 threading lock
+web/
+  __init__.py              Flask app 實例
+  template.py              前端 HTML/CSS/JS
+  routes.py                HTTP 路由（GET/POST endpoints）
+  viz.py                   OpenCV 畫圖輔助（標準筆畫、使用者筆畫）
+tracker/
+  pen_tracker.py           PenTracker 主追蹤邏輯
+  camera.py                相機偵測、開啟、切換
+  calibration.py           透視校正（homography）
+compare.py                 評分核心（DTW、筆順比對、IQR 離群過濾）
 standard_loader.py         載入 hanzi/ 字庫資料
 hanzi/                     hanzi-writer 標準筆畫資料集（9500+ 字）
 tools/
@@ -50,6 +61,7 @@ tools/
   visual.py / visual_hanzi.py  筆跡視覺化
   fetch_hanziwriter.py     重新下載字庫
 saved_writings/            每次評分後自動存檔（git 不追蹤內容）
+pen_tracker_mediapipe.py   向後相容入口（等同於 app.py）
 ```
 
 ## 透視校正
@@ -66,10 +78,11 @@ saved_writings/            每次評分後自動存檔（git 不追蹤內容）
 - **整字正規化**：所有筆畫同步平移縮放，保留相對位置
 - **Arc-length resampling**：每筆重取 64 點
 - **DTW 距離**：計算使用者筆畫與標準筆畫的形狀相似度
-- **位置矩陣**：NxN 中心距離矩陣偵測筆順對調
+- **位置矩陣**：NxN 中心距離矩陣偵測筆順對調，標示位置偏離的筆畫
 - **離群筆畫過濾**：IQR fence 自動移除邊界雜訊（不影響筆畫數計算）
 
 ## 常見問題
 - **MediaPipe 無法初始化**：系統自動切換到 HSV 模式，不影響使用
 - **座標偏移**：鏡頭未垂直時請做透視校正
 - **偵測到多餘筆畫**：系統會自動過濾離字體中心過遠的雜訊筆畫
+- **伺服器無法用 Ctrl+C 停止**：在 PowerShell 執行 `taskkill /F /IM python.exe`
