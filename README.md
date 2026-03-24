@@ -1,53 +1,75 @@
-# 即時手寫分析系統（Module_final）
+# 即時手寫分析系統
 
-本專案提供「攝影機即時追蹤 + 筆劃評分」流程：
-- 前端：Flask 網頁 (`http://127.0.0.1:5000`)
-- 即時偵測：OpenCV（藍色 HSV + ROI）
-- 評分核心：`compare.py`（筆畫數、筆順/形狀比對）
-- 輸出存檔：`saved_writings/`（每次送出都存 CSV 與 `_user.png`）
+攝影機即時追蹤漢字筆跡，並與標準筆畫資料比對、給分。
 
-## 專案結構
-- `pen_tracker_mediapipe.py`：主程式（攝影機、錄製、送評分）
-- `compare.py`：筆畫比對邏輯
-- `standard_loader.py`：載入標準字資料
-- `standard_db/`、`standard_db.json`：標準字筆畫資料
-- `saved_writings/`：送出後保存結果
-- `tools/calibrate_homography.py`：手動四角校正工具
+## 功能
+- 攝影機即時偵測藍色筆跡（HSV 色域）
+- 支援 MediaPipe 手部偵測，失敗時自動 fallback 至 HSV+ROI
+- 透視校正（homography），補償鏡頭角度造成的座標偏移
+- 按 **下一題** 從 9500+ 字資料集隨機抽題
+- 評分結果分類：
+  - `STROKE_COUNT_MISMATCH`：筆畫數錯誤
+  - `ORDER_WRONG`：筆順不對（含具體對調建議，例如「第2筆與第4筆對調」）
+  - `WRONG_CHARACTER`：整體不像目標字
+  - `OK`：通過
+- 每次送分自動存檔至 `saved_writings/`（CSV 軌跡 + 筆跡圖）
 
-## 快速啟動（Windows PowerShell）
+## 環境需求
+- Python 3.10+
+- 有藍色墨水的筆 + 攝影機
+
+## 安裝
 ```powershell
-cd c:\Users\joshu\Downloads\Module_final
+git clone https://github.com/joshua12390902/Handwriting_Analysis_System.git
+cd Handwriting_Analysis_System
+python -m venv .venv
+.\.venv\Scripts\pip install -r requirements.txt
+```
+
+## 啟動
+```powershell
 .\.venv\Scripts\python.exe pen_tracker_mediapipe.py
 ```
 開啟瀏覽器：`http://127.0.0.1:5000`
 
 ## 操作流程
 1. 白紙放入綠框（盡量填滿）
-2. 按 `Record`（會嘗試自動校正）
-3. 書寫目標字
-4. 按 `Send` 送評分
-5. 到 `saved_writings/` 查看：
-   - `YYYYMMDD_HHMMSS_mmm_字_PASS/FAIL.csv`
-   - `YYYYMMDD_HHMMSS_mmm_字_PASS/FAIL_user.png`
+2. 按 **Record**（同時觸發自動透視校正）
+3. 書寫畫面上顯示的目標字
+4. 按 **Send** 送出評分
+5. 結果即時顯示在網頁，並自動存至 `saved_writings/`
 
-## 校正說明
-系統在 `Record` 開始時會嘗試自動校正（用綠框內白紙估計 homography）。
-若自動校正失敗，可手動執行：
+## 專案結構
+```
+pen_tracker_mediapipe.py   主程式（Flask + OpenCV 即時追蹤）
+compare.py                 評分核心（DTW、筆順比對、離群過濾）
+standard_loader.py         載入 hanzi/ 字庫資料
+hanzi/                     hanzi-writer 標準筆畫資料集（9500+ 字）
+tools/
+  calibrate_homography.py  手動四角透視校正工具
+  visual.py / visual_hanzi.py  筆跡視覺化
+  fetch_hanziwriter.py     重新下載字庫
+saved_writings/            每次評分後自動存檔（git 不追蹤內容）
+```
+
+## 透視校正
+按 **Record** 時系統會自動用綠框內白紙估算校正矩陣。
+
+若自動校正失敗，手動執行：
 ```powershell
-cd c:\Users\joshu\Downloads\Module_final
 .\.venv\Scripts\python.exe tools\calibrate_homography.py --camera 0
 ```
-並依序點紙張四角（左上 → 右上 → 右下 → 左下），按 `s` 儲存。
+依序點紙張四角（左上 → 右上 → 右下 → 左下），按 `s` 儲存。
 
-`homography.npy` 載入優先順序：
-1. 專案根目錄 `homography.npy`
-2. `~/sketch_ws/homography.npy`（舊路徑相容）
+## 評分演算法簡介
+- **座標系對齊**：相機 y 軸向下，hanzi-writer y 軸向上，自動 flip_y 對齊
+- **整字正規化**：所有筆畫同步平移縮放，保留相對位置
+- **Arc-length resampling**：每筆重取 64 點
+- **DTW 距離**：計算使用者筆畫與標準筆畫的形狀相似度
+- **位置矩陣**：NxN 中心距離矩陣偵測筆順對調
+- **離群筆畫過濾**：IQR fence 自動移除邊界雜訊（不影響筆畫數計算）
 
 ## 常見問題
-- **UI 顯示筆畫錯誤很多筆**：先檢查 `saved_writings/*.csv` 是否被分段成多筆（邊界抖動常見）。
-- **畫在正中間但座標偏移**：通常是鏡頭非垂直造成透視誤差，先做校正。
-- **MediaPipe 初始化失敗**：系統會自動 fallback 至 HSV+ROI，不會中斷流程。
-
-## 目前偵測設定
-- 藍色 HSV：`H 90-130, S 70-255, V 50-255`
-- 評分在送出後執行，結果回傳到 UI 並寫入保存檔。
+- **MediaPipe 無法初始化**：系統自動切換到 HSV 模式，不影響使用
+- **座標偏移**：鏡頭未垂直時請做透視校正
+- **偵測到多餘筆畫**：系統會自動過濾離字體中心過遠的雜訊筆畫
