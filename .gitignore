@@ -26,9 +26,16 @@ report.tex
 probe.py
 probe_direct.py
 
-# Claude Code
+# Claude Code / AI assistant configs
 .claude/
+CLAUDE.md
+AGENTS.md
+copilot-instructions.md
 
 # Editor
 .vscode/
+
+# Standard DB (generated, not source-controlled)
 standard_db/
+standard_db.json
+standard_index.json
