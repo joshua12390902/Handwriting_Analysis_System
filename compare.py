@@ -356,12 +356,24 @@ def make_user_message_count(char: str, n_user: int, n_std: int) -> str:
     return f"錯誤：你寫的「{char}」少寫了 {-delta} 筆（應為 {n_std} 筆，你寫了 {n_user} 筆）。"
 
 
-def make_user_message_order_by_swaps(char: str, swaps: List[Dict[str, Any]]) -> str:
-    # Report the most confident swap(s)
-    # Display indices as 1-based to user.
-    pairs = [f"第{s['i']+1}筆與第{s['j']+1}筆" for s in swaps]
-    pairs_txt = "、".join(pairs[:3])
-    return f"錯誤：你寫的「{char}」筆順不正確，疑似筆畫對調：{pairs_txt}。"
+def make_user_message_order_by_swaps(
+    char: str,
+    swaps: List[Dict[str, Any]],
+    center_dist_diag: List[float] = None,
+    center_T: float = 0.18,
+) -> str:
+    # Report strokes whose own diagonal distance is bad (position is off).
+    # Fall back to union of swap pair indices if diag info is unavailable.
+    if center_dist_diag:
+        bad = sorted(
+            i + 1
+            for i, d in enumerate(center_dist_diag)
+            if d > center_T
+        )
+    else:
+        bad = sorted({s['i'] + 1 for s in swaps} | {s['j'] + 1 for s in swaps})
+    strokes_txt = "、".join(f"第{n}筆" for n in bad)
+    return f"錯誤：你寫的「{char}」{strokes_txt}位置或順序不正確，請重新確認筆順。"
 
 
 def make_user_message_order_by_idx(char: str, wrong_idx: int, wrong_score: float, t_min: float) -> str:
@@ -468,7 +480,11 @@ def verify_character(
     )
 
     if len(swaps) > 0:
-        msg = make_user_message_order_by_swaps(target_char, swaps)
+        msg = make_user_message_order_by_swaps(
+            target_char, swaps,
+            center_dist_diag=comp["center_dist_diag"],
+            center_T=center_T,
+        )
         return {
             "correct": False,
             "status": "ORDER_WRONG",
