@@ -19,8 +19,12 @@ import numpy as np
 
 try:
     import mediapipe as mp
+    from mediapipe.tasks import python as mp_tasks
+    from mediapipe.tasks.python import vision as mp_vision
 except ImportError:
     mp = None
+    mp_tasks = None
+    mp_vision = None
 
 import state
 import standard_loader
@@ -42,6 +46,9 @@ H_MAX, S_MAX, V_MAX = 130, 255, 255
 
 BASE_THRESHOLD = 400          # 輪廓面積門檻（畫面中央）
 LINEAR_COMPENSATION = 2.6     # 往右每像素補償量
+MP_SEARCH_RADIUS = 50         # MediaPipe 搜尋半徑（像素）
+RISE_THRESHOLD   = -105       # 後三指 Y 位移門檻，小於此值 → 下筆姿勢
+PEN_EXTEND       = 0.25       # 食指方向延伸比例（搜尋圈超出指尖多遠）
 
 FRONT_STAGE_TEST_MODE   = False   # True → 跳過評分，僅測試前端流程
 AUTO_CALIBRATE_ON_RECORD = True   # True → 每次按 Record 自動校正 homography
@@ -85,9 +92,8 @@ class PenTracker:
         self.M = load_homography(project_root)
 
         # MediaPipe
-        self.mp_hands = None
-        self.hands = None
-        self.mp_draw = None
+        self.hand_detector = None
+        self._mp_timestamp: int = 0
         self.mediapipe_ready = False
         self._init_mediapipe()
 
@@ -117,23 +123,41 @@ class PenTracker:
 
     # ── 初始化 ────────────────────────────────────────────────────────
 
+    # 手部骨架連線（MediaPipe 21 個關鍵點的連線對）
+    HAND_CONNECTIONS = [
+        (0,1),(1,2),(2,3),(3,4),
+        (0,5),(5,6),(6,7),(7,8),
+        (5,9),(9,10),(10,11),(11,12),
+        (9,13),(13,14),(14,15),(15,16),
+        (13,17),(17,18),(18,19),(19,20),
+        (0,17),
+    ]
+
     def _init_mediapipe(self) -> None:
-        if mp is None:
+        if mp is None or mp_tasks is None:
             print("[WARN] mediapipe 未安裝，使用 HSV+ROI 偵測。")
             return
         try:
-            self.mp_hands = mp.solutions.hands
-            self.hands = self.mp_hands.Hands(
-                static_image_mode=False,
-                max_num_hands=1,
-                min_detection_confidence=0.7,
+            model_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)), "hand_landmarker.task"
+            )
+            if not os.path.exists(model_path):
+                print(f"[WARN] 找不到 {model_path}，無法啟用 MediaPipe。")
+                return
+            base_opts = mp_tasks.BaseOptions(model_asset_path=model_path)
+            options   = mp_vision.HandLandmarkerOptions(
+                base_options=base_opts,
+                running_mode=mp_vision.RunningMode.VIDEO,
+                num_hands=1,
+                min_hand_detection_confidence=0.7,
+                min_hand_presence_confidence=0.7,
                 min_tracking_confidence=0.7,
             )
-            self.mp_draw = mp.solutions.drawing_utils
+            self.hand_detector = mp_vision.HandLandmarker.create_from_options(options)
             self.mediapipe_ready = True
-            print("[INFO] MediaPipe Hands 初始化成功。")
+            print("[INFO] MediaPipe HandLandmarker 初始化成功。")
         except Exception as e:
-            print(f"[WARN] MediaPipe Hands 無法啟用，改用 HSV+ROI。原因: {e}")
+            print(f"[WARN] MediaPipe HandLandmarker 無法啟用，改用 HSV+ROI。原因: {e}")
 
     # ── 相機切換 ──────────────────────────────────────────────────────
 
@@ -378,9 +402,19 @@ class PenTracker:
 
     # ── Hysteresis 輔助 ───────────────────────────────────────────────
 
+    def _calc_back_finger_rise(self, landmarks, h: int) -> float:
+        """計算後三指（中指、無名指、小指）相對手腕的垂直位移。
+        回傳 avg_tip_y - wrist_y（像素）。
+        值小（負）→ 手指比手腕高（下筆姿勢）
+        值大（正）→ 手指比手腕低（提筆姿勢）
+        """
+        wrist_y   = landmarks[0].y * h
+        avg_tip_y = sum(landmarks[i].y * h for i in [12, 16, 20]) / 3
+        return avg_tip_y - wrist_y
+
     def _update_pen_hysteresis(self, raw_down: bool) -> None:
         """更新 pen-state 狀態機（含 hysteresis）。"""
-        FRAMES_TO_DOWN = 4
+        FRAMES_TO_DOWN = 3
         FRAMES_TO_UP   = 3
         if raw_down == self._pen_raw:
             self._pen_confirm += 1
@@ -439,92 +473,119 @@ class PenTracker:
         box_color   = (0, 255, 0) if paper_ready_now else (0, 0, 255)
         status_text = "Ready! Please write inside." if paper_ready_now else "Align paper inside the box..."
 
-        # ── MediaPipe 手部追蹤 ────────────────────────────────────────
-        mp_results = None
-        if self.mediapipe_ready and self.hands is not None:
-            mp_results = self.hands.process(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        # ── MediaPipe 手部追蹤（核心）─────────────────────────────────
+        mp_result    = None
+        hand_detected = False
+        if self.mediapipe_ready and self.hand_detector is not None:
+            self._mp_timestamp += 33   # ~30 FPS
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            mp_img   = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            mp_result = self.hand_detector.detect_for_video(mp_img, self._mp_timestamp)
 
-        finger_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-        if mp_results is not None and mp_results.multi_hand_landmarks:
-            for hand_lm in mp_results.multi_hand_landmarks:
-                lm8 = hand_lm.landmark[self.mp_hands.HandLandmark.INDEX_FINGER_TIP]
-                h, w, _ = frame.shape
-                fx, fy = int(lm8.x * w), int(lm8.y * h)
-                cv2.circle(finger_mask, (fx, fy), 80, 255, -1)
-                cv2.circle(frame, (fx, fy), 80, (255, 105, 180), 2)
-                cv2.putText(frame, "AI Search Zone", (fx - 50, fy - 90),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 105, 180), 2)
-                if self.mp_draw is not None:
-                    self.mp_draw.draw_landmarks(frame, hand_lm, self.mp_hands.HAND_CONNECTIONS)
-        else:
-            finger_mask[self.ROI_Y1:self.ROI_Y2, self.ROI_X1:self.ROI_X2] = 255
-
-        # ── HSV 顏色過濾 + 與指尖遮罩交集 ────────────────────────────
-        clean = np.zeros_like(frame)
-        clean[self.ROI_Y1:self.ROI_Y2, self.ROI_X1:self.ROI_X2] = roi_img
-        hsv = cv2.cvtColor(clean, cv2.COLOR_BGR2HSV)
-        color_mask = cv2.inRange(
-            hsv,
-            np.array([H_MIN, S_MIN, V_MIN]),
-            np.array([H_MAX, S_MAX, V_MAX]),
-        )
-        mask = cv2.bitwise_and(color_mask, finger_mask)
-        mask = cv2.erode(mask, None, iterations=2)
-        mask = cv2.dilate(mask, None, iterations=2)
-
-        # ── 輪廓偵測 & 筆頭定位 ───────────────────────────────────────
-        cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         msg = _Point()
         cx = cy = 0
         writing = False
         color   = (100, 100, 100)
 
-        if cnts:
-            c = max(cnts, key=cv2.contourArea)
-            area = cv2.contourArea(c)
-            if area > 50:
-                moments = cv2.moments(c)
-                if moments["m00"]:
-                    cx = int(moments["m10"] / moments["m00"])
-                    cy = int(moments["m01"] / moments["m00"])
-                    tx, ty = float(cx), float(cy)
+        if mp_result is not None and mp_result.hand_landmarks:
+            landmarks = mp_result.hand_landmarks[0]   # 第一隻手的 21 個點
+            h_f, w_f  = frame.shape[:2]
+            hand_detected = True
 
-                    if self.M is not None:
-                        dst = cv2.perspectiveTransform(
-                            np.array([[[cx, cy]]], dtype="float32"), self.M
-                        )
-                        tx, ty = float(dst[0][0][0]), float(dst[0][0][1])
+            # 搜尋中心 = 沿食指方向延伸到筆尖位置
+            lm5 = landmarks[5]   # INDEX_FINGER_MCP（指根）
+            lm8 = landmarks[8]   # INDEX_FINGER_TIP（指尖）
+            dx = (lm8.x - lm5.x) * w_f
+            dy = (lm8.y - lm5.y) * h_f
+            fx = int(lm8.x * w_f + dx * PEN_EXTEND)
+            fy = int(lm8.y * h_f + dy * PEN_EXTEND)
 
-                    delta = cx - (frame.shape[1] // 2)
-                    thr   = max(100, BASE_THRESHOLD + delta * LINEAR_COMPENSATION)
+            # 繪製手部骨架
+            for a, b in self.HAND_CONNECTIONS:
+                la, lb = landmarks[a], landmarks[b]
+                pa = (int(la.x * w_f), int(la.y * h_f))
+                pb = (int(lb.x * w_f), int(lb.y * h_f))
+                cv2.line(frame, pa, pb, (200, 200, 200), 1, cv2.LINE_AA)
+            for lm in landmarks:
+                cv2.circle(frame, (int(lm.x * w_f), int(lm.y * h_f)), 3, (255, 255, 255), -1)
 
-                    in_bounds = (-20 <= tx <= 660 and -20 <= ty <= 500)
-                    raw_down  = in_bounds and (area < thr)
+            cv2.circle(frame, (fx, fy), MP_SEARCH_RADIUS, (255, 105, 180), 2)
+            cv2.putText(frame, "AI Tracking", (fx - 45, fy - MP_SEARCH_RADIUS - 8),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 105, 180), 2)
 
-                    # Hysteresis 狀態機：UP→DOWN 需 4 幀，DOWN→UP 需 3 幀
-                    self._update_pen_hysteresis(raw_down)
+            # ── HSV 藍色筆偵測（限定在 AI 引導區域內）──────────────────
+            finger_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+            cv2.circle(finger_mask, (fx, fy), MP_SEARCH_RADIUS, 255, -1)
 
-                    msg.z = 1.0 if self._pen_state else 0.0
-                    writing = self._pen_state
-                    color   = (0, 255, 0) if writing else (0, 0, 255)
-                    msg.x, msg.y = tx, ty
+            clean = np.zeros_like(frame)
+            clean[self.ROI_Y1:self.ROI_Y2, self.ROI_X1:self.ROI_X2] = roi_img
+            hsv = cv2.cvtColor(clean, cv2.COLOR_BGR2HSV)
+            color_mask = cv2.inRange(
+                hsv,
+                np.array([H_MIN, S_MIN, V_MIN]),
+                np.array([H_MAX, S_MAX, V_MAX]),
+            )
+            mask = cv2.bitwise_and(color_mask, finger_mask)
+            mask = cv2.erode(mask, None, iterations=2)
+            mask = cv2.dilate(mask, None, iterations=2)
 
-                    if writing and paper_ready_now:
-                        if self.last_pos:
-                            cv2.line(self.paint_canvas, self.last_pos, (cx, cy), (0, 255, 255), 2)
-                        self.last_pos = (cx, cy)
+            cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            if cnts:
+                c    = max(cnts, key=cv2.contourArea)
+                area = cv2.contourArea(c)
+                if area > 50:
+                    moments = cv2.moments(c)
+                    if moments["m00"]:
+                        cx = int(moments["m10"] / moments["m00"])
+                        cy = int(moments["m01"] / moments["m00"])
+                        tx, ty = float(cx), float(cy)
+
+                        if self.M is not None:
+                            dst = cv2.perspectiveTransform(
+                                np.array([[[cx, cy]]], dtype="float32"), self.M
+                            )
+                            tx, ty = float(dst[0][0][0]), float(dst[0][0][1])
+
+                        delta = cx - (frame.shape[1] // 2)
+                        thr   = max(100, BASE_THRESHOLD + delta * LINEAR_COMPENSATION)
+
+                        in_bounds = (-20 <= tx <= 660 and -20 <= ty <= 500)
+
+                        # 雙重判斷：HSV 面積 + AI 手指蜷曲度
+                        rise = self._calc_back_finger_rise(landmarks, h_f)
+                        area_ok = area < thr
+                        rise_ok = rise < RISE_THRESHOLD
+                        raw_down = in_bounds and area_ok and rise_ok
+                        self._update_pen_hysteresis(raw_down)
+
+                        msg.x, msg.y = tx, ty
+                        msg.z    = 1.0 if self._pen_state else 0.0
+                        writing  = self._pen_state
+                        color    = (0, 255, 0) if writing else (0, 0, 255)
+
+                        cv2.circle(frame, (cx, cy), 10, color, 3)
+                        cv2.putText(frame, f"A:{area:.0f} R:{rise:.0f}", (cx + 15, cy),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
                     else:
-                        self.last_pos = None
-
-                    cv2.circle(frame, (cx, cy), 10, color, 2)
+                        self._force_pen_up()
                 else:
                     self._force_pen_up()
-                    self.last_pos = None
             else:
                 self._force_pen_up()
-                self.last_pos = None
-        else:
+
+        if not hand_detected:
+            # 未偵測到手 → 不進行筆跡偵測，提示使用者
             self._force_pen_up()
+            self.last_pos = None
+            cv2.putText(frame, "Please show your hand", (150, 240),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+
+        # ── 畫線到畫布 ───────────────────────────────────────────────
+        if writing and paper_ready_now:
+            if self.last_pos:
+                cv2.line(self.paint_canvas, self.last_pos, (cx, cy), (0, 255, 255), 2)
+            self.last_pos = (cx, cy)
+        elif not writing:
             self.last_pos = None
 
         # ── 筆畫歷史 & 雜訊過濾 ───────────────────────────────────────
