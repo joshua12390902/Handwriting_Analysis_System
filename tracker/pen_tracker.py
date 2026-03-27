@@ -29,7 +29,7 @@ except ImportError:
 import state
 import standard_loader
 from tracker.camera import build_camera_order, open_camera
-from tracker.calibration import auto_calibrate, load_homography
+from tracker.calibration import manual_calibrate
 from web.viz import draw_user_strokes
 
 try:
@@ -87,9 +87,17 @@ class PenTracker:
         self.is_paper_ready = False
 
         # Homography
+        # Homography
         project_root = os.path.dirname(os.path.dirname(__file__))
         self._h_save_path = os.path.join(project_root, "homography.npy")
-        self.M = load_homography(project_root)
+        
+        # 加上這段直接讀取的邏輯
+        if os.path.exists(self._h_save_path):
+            self.M = np.load(self._h_save_path)
+            print("[INFO] 載入既有的 homography 矩陣。")
+        else:
+            self.M = None
+            
 
         # MediaPipe
         self.hand_detector = None
@@ -185,16 +193,9 @@ class PenTracker:
     # ── 透視校正 ──────────────────────────────────────────────────────
 
     def _try_auto_calibrate(self) -> None:
-        with self.cap_lock:
-            ret, frame = self.cap.read()
-        if not ret:
-            print("[WARN] 自動校正失敗：無法讀取相機畫面")
-            return
-        frame = cv2.flip(frame, -1)
+        # 直接使用 UI 上的綠框作為紙張邊界，放棄影像辨識找角點
         roi = (self.ROI_X1, self.ROI_Y1, self.ROI_X2, self.ROI_Y2)
-        result = auto_calibrate(frame, roi, self._h_save_path)
-        if result is not None:
-            self.M = result
+        self.M = manual_calibrate(roi, self._h_save_path)
 
     # ── 畫布管理 ──────────────────────────────────────────────────────
 

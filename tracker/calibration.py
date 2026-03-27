@@ -84,16 +84,37 @@ def auto_calibrate(
     return M
 
 
-def load_homography(project_root: str) -> Optional[np.ndarray]:
-    """嘗試從專案根目錄或舊路徑載入 homography.npy。"""
-    candidates = [
-        os.path.join(project_root, "homography.npy"),
-        os.path.expanduser("~/sketch_ws/homography.npy"),
-    ]
-    for path in candidates:
-        if os.path.exists(path):
-            M = np.load(path)
-            print(f"[INFO] Homography 載入成功: {path}")
-            return M
-    print("[WARN] 找不到 homography.npy，將使用未校正座標。")
-    return None
+def manual_calibrate(
+    roi: Tuple[int, int, int, int],
+    save_path: str,
+) -> np.ndarray:
+    """
+    手動使用 ROI 框框作為紙張四角，計算並儲存 homography 矩陣。
+
+    Parameters
+    ----------
+    roi         : (x1, y1, x2, y2) 框框範圍，直接作為紙張四角
+    save_path   : homography.npy 的儲存路徑
+
+    Returns
+    -------
+    np.ndarray (3×3) homography 矩陣
+    """
+    x1, y1, x2, y2 = roi
+
+    # 直接使用框框的四角作為源點
+    src = np.array(
+        [[float(x1), float(y1)],  # 左上
+         [float(x2), float(y1)],  # 右上
+         [float(x2), float(y2)],  # 右下
+         [float(x1), float(y2)]], # 左下
+        dtype=np.float32,
+    )
+
+    # 目標點也是相同的矩形
+    dst = src.copy()
+
+    M = cv2.getPerspectiveTransform(src, dst)
+    np.save(save_path, M)
+    print(f"[INFO] 手動校正成功，已更新 homography: {save_path}")
+    return M
