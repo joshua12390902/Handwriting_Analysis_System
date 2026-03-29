@@ -37,6 +37,13 @@ try:
 except Exception:
     compare_core = None
 
+try:
+    import llm_chat as _llm_chat
+    _LLM_OK = True
+except Exception:
+    _llm_chat = None
+    _LLM_OK = False
+
 
 # ── 設定常數 ──────────────────────────────────────────────────────────
 
@@ -77,8 +84,7 @@ class PenTracker:
         self.cap_lock = threading.Lock()
 
         # 相機
-        self.current_camera_index = -1
-        self.cap = open_camera()
+        self.cap, self.current_camera_index = open_camera()
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
@@ -123,9 +129,10 @@ class PenTracker:
         self._pen_confirm: int = 0      # 連續同方向幀數
 
         # 目前題目
-        self.curr_char = state.global_target_char
-        self.curr_hex  = state.global_target_hex
-        self.curr_ts   = state.global_target_ts
+        target = state.app_state.snapshot_target()
+        self.curr_char = target["target_char"]
+        self.curr_hex  = target["target_hex"]
+        self.curr_ts   = target["ts"]
 
         self.reset_canvas()
 
@@ -174,15 +181,21 @@ class PenTracker:
 
         def _do():
             scan_order = build_camera_order(self.current_camera_index)
+            # 排除目前正在用的相機，避免只有一台時切到自己然後壞掉
+            scan_order = [i for i in scan_order if i != self.current_camera_index]
+            if not scan_order:
+                print("[WARN] 只有一台相機，無法切換")
+                return
             try:
-                new_cap = open_camera(camera_order=scan_order)
+                new_cap, new_idx = open_camera(camera_order=scan_order)
             except Exception as e:
-                print(f"[WARN] 切換相機失敗：{e}")
+                print(f"[WARN] 切換相機失敗（可能只有一台相機）：{e}")
                 return
             new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             with self.cap_lock:
                 old_cap, self.cap = self.cap, new_cap
+                self.current_camera_index = new_idx
             try:
                 old_cap.release()
             except Exception:
@@ -238,25 +251,30 @@ class PenTracker:
 
     def trigger_auto_request(self) -> None:
         print("[INFO] 收到下一題請求")
-        hanzi_dir = standard_loader.RAW_HANZI_DIR
-        candidates = [p.stem for p in hanzi_dir.glob("*.json") if p.stem != self.curr_char]
-        if candidates:
-            new_char = random.choice(candidates)
-            new_hex  = new_char.encode("utf-8").hex()
-            new_ts   = int(time.time() * 1000)
-            self.curr_char = new_char
-            self.curr_hex  = new_hex
-            self.curr_ts   = new_ts
-            with state.data_lock:
-                state.global_target_char = new_char
-                state.global_target_hex  = new_hex
-                state.global_target_ts   = new_ts
-                state.global_result["status"] = "WAIT"
-            self.reset_canvas()
-            print(f"[INFO] 切換到新題目：{new_char}")
+
+        # 優先使用學生對話中指定的字
+        requested = state.app_state.pop_requested_char()
+
+        if requested:
+            new_char = requested
+            print(f"[INFO] 使用學生指定字：{new_char}")
         else:
-            with state.data_lock:
-                state.global_result["status"] = "WAIT"
+            hanzi_dir  = standard_loader.RAW_HANZI_DIR
+            candidates = [p.stem for p in hanzi_dir.glob("*.json") if p.stem != self.curr_char]
+            if not candidates:
+                state.app_state.update_result(status="WAIT")
+                return
+            new_char = random.choice(candidates)
+            print(f"[INFO] 隨機切換到：{new_char}")
+
+        new_hex = new_char.encode("utf-8").hex()
+        new_ts  = int(time.time() * 1000)
+        self.curr_char = new_char
+        self.curr_hex  = new_hex
+        self.curr_ts   = new_ts
+        state.app_state.set_target(new_char, new_hex, new_ts)
+        state.app_state.reset_result(status="WAIT")
+        self.reset_canvas()
 
     # ── 評分 ─────────────────────────────────────────────────────────
 
@@ -265,21 +283,19 @@ class PenTracker:
         print(f"\n[INFO] 正在處理 {len(self.strokes_data)} 個筆跡軌跡點...")
 
         if FRONT_STAGE_TEST_MODE:
-            with state.data_lock:
-                state.global_result.update({
-                    "status":     "DONE",
-                    "correct":    True,
-                    "wrong_idx":  -1,
-                    "message":    "前段測試模式：已收到筆跡資料（未進行評分）",
-                    "result_ts":  int(time.time() * 1000),
-                })
+            state.app_state.update_result(
+                status="DONE",
+                correct=True,
+                wrong_idx=-1,
+                message="前段測試模式：已收到筆跡資料（未進行評分）",
+                result_ts=int(time.time() * 1000),
+            )
             return
 
         if not self.curr_hex:
             self.curr_hex = self.curr_char.encode("utf-8").hex()
 
-        with state.data_lock:
-            state.global_result["status"] = "ANALYZING"
+        state.app_state.update_result(status="ANALYZING")
 
         threading.Thread(target=self._run_compare_analysis, daemon=True).start()
 
@@ -350,8 +366,7 @@ class PenTracker:
             ms      = ts % 1000
             char_s  = "".join(c if c not in r'\/:*?"<>|' else "_" for c in self.curr_char)
 
-            with state.data_lock:
-                state.global_std_json = std_entry
+            state.app_state.set_std_json(std_entry)
 
             result = compare_core.verify_character(
                 user_strokes=user_strokes,
@@ -382,24 +397,38 @@ class PenTracker:
                 "result_ts":        ts,
                 "saved_csv":        csv_path,
                 "saved_user_image": img_path,
+                "llm_feedback":     "",
+                "llm_loading":      _LLM_OK,
             })
             result.setdefault("wrong_idx", -1)
+            result["target_char"] = self.curr_char
 
-            with state.data_lock:
-                state.global_result = result
+            state.app_state.replace_result(result)
             print(f"[INFO] 分析結果：{result.get('status')} / {result.get('message', '')}")
+
+            # LLM 反饋（在同一 thread 裡，避免競爭）
+            if _LLM_OK:
+                try:
+                    feedback = _llm_chat.get_feedback(result)
+                    state.app_state.update_result(
+                        llm_feedback=feedback,
+                        llm_loading=False,
+                    )
+                    print(f"[INFO] LLM 反饋已產生")
+                except Exception as e:
+                    print(f"[WARN] LLM 反饋失敗: {e}")
+                    state.app_state.update_result(llm_loading=False)
 
         except Exception as e:
             print(f"[ERROR] 評分流程失敗: {e}")
-            with state.data_lock:
-                state.global_result = {
-                    "status":    "DONE",
-                    "correct":   False,
-                    "wrong_idx": -1,
-                    "message":   f"評分失敗：{e}",
-                    "reason":    {"failed_rule": "ANALYSIS_ERROR"},
-                    "result_ts": int(time.time() * 1000),
-                }
+            state.app_state.replace_result({
+                "status":    "DONE",
+                "correct":   False,
+                "wrong_idx": -1,
+                "message":   f"評分失敗：{e}",
+                "reason":    {"failed_rule": "ANALYSIS_ERROR"},
+                "result_ts": int(time.time() * 1000),
+            })
 
     # ── Hysteresis 輔助 ───────────────────────────────────────────────
 
@@ -625,5 +654,4 @@ class PenTracker:
         cv2.putText(comb, "Pen: DOWN" if msg.z == 1.0 else "Pen: UP",
                     (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, pen_color, 2)
 
-        with state.data_lock:
-            state.global_frame = comb.copy()
+        state.app_state.set_frame(comb)

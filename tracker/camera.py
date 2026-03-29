@@ -42,10 +42,10 @@ def build_camera_order(current_index: int = -1) -> List[int]:
     return base
 
 
-def open_camera(camera_order: Optional[List[int]] = None, current_index: int = -1) -> cv2.VideoCapture:
+def open_camera(camera_order: Optional[List[int]] = None, current_index: int = -1):
     """
-    按 camera_order 依序嘗試開啟相機，回傳第一個成功的 VideoCapture。
-    找不到時 raise RuntimeError。
+    按 camera_order 依序嘗試開啟相機。
+    回傳 (VideoCapture, cam_index)。找不到時 raise RuntimeError。
     """
     import os
     backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None] if os.name == "nt" else [cv2.CAP_V4L2, None]
@@ -63,7 +63,7 @@ def open_camera(camera_order: Optional[List[int]] = None, current_index: int = -
                 if ok:
                     label = "default" if backend is None else str(backend)
                     print(f"[INFO] 相機啟動成功，index={cam_idx}, backend={label}")
-                    return cap
+                    return cap, cam_idx
             if cap is not None:
                 cap.release()
 

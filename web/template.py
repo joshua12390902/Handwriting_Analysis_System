@@ -41,6 +41,30 @@ HTML_TEMPLATE = """
     .std-img { width:320px; height:320px; border:1px solid #555; border-radius:10px; background:#000; object-fit: contain; }
     .instruction { font-size: 24px; font-weight: bold; margin: 10px 0; color: #aaa; }
     .hint-text { color: #f39c12; font-weight: bold; font-size: 18px; margin-top: 5px; }
+
+    /* LLM 反饋 */
+    .llm-feedback { background:#1a2a1a; border:1px solid #2d5a2d; border-radius:8px; padding:12px 16px; margin-top:12px; color:#a8d8a8; font-size:16px; line-height:1.6; text-align:left; display:none; }
+    .llm-feedback.loading { color:#888; border-color:#444; background:#1a1a1a; animation: pulse 1s infinite; }
+    .llm-label { font-size:12px; color:#666; margin-bottom:4px; }
+
+    /* 聊天區 */
+    .chat-section { width:100%; max-width:680px; margin: 0 auto 20px; }
+    .chat-box { background:#1a1a2e; border:1px solid #333; border-radius:12px; padding:16px; }
+    .chat-title { color:#aaa; font-size:14px; margin-bottom:10px; text-align:left; }
+    .chat-history { min-height:40px; max-height:160px; overflow-y:auto; margin-bottom:10px; }
+    .chat-msg { padding:6px 10px; border-radius:8px; margin:4px 0; font-size:15px; text-align:left; }
+    .chat-msg.user   { background:#2c3e50; color:#ecf0f1; margin-left:40px; }
+    .chat-msg.bot    { background:#1e3a2f; color:#a8d8a8; margin-right:40px; }
+    .chat-msg.set    { background:#3a2800; color:#f39c12; font-size:13px; text-align:center; margin:2px 0; }
+    .chat-input-row  { display:flex; gap:8px; }
+    .chat-input-row input { flex:1; padding:10px 14px; border-radius:8px; border:1px solid #444; background:#2a2a2a; color:#eee; font-size:15px; }
+    .chat-input-row input:focus { outline:none; border-color:#8e44ad; }
+    .chat-send-btn { padding:10px 20px; background:#8e44ad; border:none; border-radius:8px; color:white; font-size:15px; cursor:pointer; white-space:nowrap; }
+    .chat-send-btn:disabled { background:#444; cursor:not-allowed; }
+    .typing-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#888; margin:0 2px; animation: typing 1s infinite; }
+    .typing-dot:nth-child(2) { animation-delay:0.2s; }
+    .typing-dot:nth-child(3) { animation-delay:0.4s; }
+    @keyframes typing { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
   </style>
 </head>
 <body>
@@ -68,8 +92,19 @@ HTML_TEMPLATE = """
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" style="display:flex; flex-direction:column; align-items:center;">
         <img src="/video_feed" class="video-feed">
+        <!-- 聊天區（攝影機下方） -->
+        <div class="chat-section" style="margin-top:12px; margin-bottom:0;">
+          <div class="chat-box">
+            <div class="chat-title">💬 告訴 AI 老師你想練什麼字，或問任何漢字問題（回覆僅供參考）</div>
+            <div id="chatHistory" class="chat-history"></div>
+            <div class="chat-input-row">
+              <input id="chatInput" type="text" placeholder="例：我想練「三」這個字…" onkeydown="if(event.key==='Enter') sendChat()">
+              <button id="chatSendBtn" class="chat-send-btn" onclick="sendChat()">送出</button>
+            </div>
+          </div>
+        </div>
     </div>
   </div>
 
@@ -84,11 +119,31 @@ HTML_TEMPLATE = """
                 <div id="hintText" class="hint-text"></div>
             </div>
         </div>
+        <div id="llmBox" class="llm-feedback">
+            <div class="llm-label">AI 老師反饋</div>
+            <div id="llmText"></div>
+        </div>
       </div>
   </div>
 
 <script>
 let lastResultTs = 0;
+let chatHistory = [];
+let lastTargetTs = null;
+
+function resetChatContextForTarget(char, announce = false) {
+    chatHistory = [{role:'assistant', content: `目前練習字已切換為「${char}」。`}];
+    if (announce) {
+        appendSetMsg(`目前練習字已切換為「${char}」`);
+    }
+}
+
+function syncChatTarget(char, ts) {
+    if (ts === lastTargetTs) return;
+    const isInitialSync = lastTargetTs === null;
+    lastTargetTs = ts;
+    resetChatContextForTarget(char, !isInitialSync);
+}
 
 async function refreshState() {
     const tData = await fetch('/get_target').then(r => r.json());
@@ -97,19 +152,22 @@ async function refreshState() {
         charDiv.innerText = tData.target_char;
         charDiv.style.borderColor = '#f1c40f';
     }
+    syncChatTarget(tData.target_char, tData.ts);
     document.getElementById('targetMeta').innerText = `TS: ${tData.ts}`;
 
     const rData = await fetch('/get_result').then(r => r.json());
     const resBox = document.getElementById('resultBox');
-    const badge = document.getElementById('statusBadge');
-    const instr = document.getElementById('instructionText');
+    const badge  = document.getElementById('statusBadge');
+    const instr  = document.getElementById('instructionText');
     const btnAuto = document.getElementById('btnAuto');
-    const hint = document.getElementById('hintText');
+    const hint   = document.getElementById('hintText');
+    const llmBox = document.getElementById('llmBox');
+    const llmText = document.getElementById('llmText');
 
     if (rData.status === 'WAIT') {
         resBox.style.display = 'none';
         btnAuto.disabled = false;
-        btnAuto.innerText = " 跳過 / 下一題";
+        btnAuto.innerText = "下一題 (Next)";
         btnAuto.style.opacity = "1";
     }
     else if (rData.status === 'ANALYZING') {
@@ -118,6 +176,7 @@ async function refreshState() {
         badge.innerText = '分析中...';
         instr.innerText = 'AI 正在判讀您的筆跡';
         instr.style.color = '#ccc';
+        llmBox.style.display = 'none';
         btnAuto.disabled = true;
     }
     else {
@@ -147,6 +206,19 @@ async function refreshState() {
             document.getElementById('stdImage').src = '/std_strokes.png?t=' + rData.result_ts;
             lastResultTs = rData.result_ts;
         }
+
+        // LLM 反饋
+        if (rData.llm_loading) {
+            llmBox.style.display = 'block';
+            llmBox.className = 'llm-feedback loading';
+            llmText.innerText = 'AI 老師正在分析...';
+        } else if (rData.llm_feedback) {
+            llmBox.style.display = 'block';
+            llmBox.className = 'llm-feedback';
+            llmText.innerText = rData.llm_feedback;
+        } else {
+            llmBox.style.display = 'none';
+        }
     }
 }
 setInterval(refreshState, 500);
@@ -156,11 +228,91 @@ async function sendCommand(action) {
         document.getElementById('resultBox').style.display = 'none';
         document.getElementById('targetDisplay').innerText = '...';
         document.getElementById('targetDisplay').style.borderColor = '#555';
+        document.getElementById('llmBox').style.display = 'none';
     }
     if (action === 'reset') {
         document.getElementById('targetDisplay').style.borderColor = '#f1c40f';
     }
     await fetch('/command/' + action, {method:'POST'});
+}
+
+// ── 聊天 ─────────────────────────────────────────────────────────────
+
+function appendUserMsg(text) {
+    const d = document.createElement('div');
+    d.className = 'chat-msg user';
+    d.innerText = text;
+    document.getElementById('chatHistory').appendChild(d);
+    document.getElementById('chatHistory').scrollTop = 9999;
+}
+
+function appendBotMsg(text) {
+    const d = document.createElement('div');
+    d.className = 'chat-msg bot';
+    d.innerText = text;
+    document.getElementById('chatHistory').appendChild(d);
+    document.getElementById('chatHistory').scrollTop = 9999;
+}
+
+function appendSetMsg(text) {
+    const d = document.createElement('div');
+    d.className = 'chat-msg set';
+    d.innerText = text;
+    document.getElementById('chatHistory').appendChild(d);
+    document.getElementById('chatHistory').scrollTop = 9999;
+}
+
+async function sendChat() {
+    const input = document.getElementById('chatInput');
+    const btn   = document.getElementById('chatSendBtn');
+    const msg   = input.value.trim();
+    if (!msg) return;
+
+    appendUserMsg(msg);
+    chatHistory.push({role:'user', content: msg});
+    input.value = '';
+    btn.disabled = true;
+    btn.innerText = 'AI 思考中...';
+
+    // 顯示左側等待泡泡
+    const waitId = 'wait-' + Date.now();
+    const waitDiv = document.createElement('div');
+    waitDiv.className = 'chat-msg bot';
+    waitDiv.id = waitId;
+    waitDiv.innerHTML = '<span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span> 回覆中…';
+    waitDiv.style.cssText = 'color:#888; font-style:italic;';
+    document.getElementById('chatHistory').appendChild(waitDiv);
+    document.getElementById('chatHistory').scrollTop = 9999;
+
+    try {
+        const res = await fetch('/chat', {
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({message: msg, history: chatHistory.slice(-6)}),
+        });
+        const data = await res.json();
+
+        // 移除等待泡泡，顯示真實回覆
+        document.getElementById(waitId)?.remove();
+
+        if (data.reply) {
+            appendBotMsg(data.reply);
+            chatHistory.push({role:'assistant', content: data.reply});
+        }
+        if (data.set_char) {
+            appendSetMsg(`✅ 已切換為「${data.set_char}」`);
+            document.getElementById('targetDisplay').innerText = data.set_char;
+            document.getElementById('targetDisplay').style.borderColor = '#f1c40f';
+            resetChatContextForTarget(data.set_char);
+            lastTargetTs = null;
+        }
+    } catch(e) {
+        document.getElementById(waitId)?.remove();
+        appendBotMsg('（連線失敗，請稍後再試）');
+    }
+
+    btn.disabled = false;
+    btn.innerText = '送出';
 }
 </script>
 </body>

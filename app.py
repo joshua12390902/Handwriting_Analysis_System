@@ -24,7 +24,7 @@ def main() -> None:
 
     # 2. 建立 Tracker（在此之後路由才能操作 tracker）
     tracker = PenTracker()
-    state._tracker_ref = tracker
+    state.app_state.set_tracker(tracker)
 
     # 3. 主執行緒跑攝影機迴圈（Ctrl+C 可中斷）
     try:
