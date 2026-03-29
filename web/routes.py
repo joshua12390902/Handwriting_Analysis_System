@@ -94,4 +94,13 @@ def command(action: str):
         elif action == "send":       t.trigger_send()
         elif action == "auto":       t.trigger_auto_request()
         elif action == "switch_cam": t.trigger_switch_camera()
+        elif action == "calibrate":  t.trigger_calibration()
     return jsonify({"ok": True})
+
+# ⭐ 新增：切換顏色指令 API
+@app.post("/set_color/<color_name>")
+def set_color(color_name: str):
+    t = state._tracker_ref
+    if t:
+        t.set_pen_color(color_name)
+    return jsonify({"ok": True, "color": color_name})
