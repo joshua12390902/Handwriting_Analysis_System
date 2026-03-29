@@ -173,6 +173,49 @@ $env:OLLAMA_MODEL="qwen2.5:3b"
 5. 查看評分結果與標準筆畫提示
 6. 按 `Next` 換題，或在聊天區直接指定下一題
 
+## 3D 列印硬體支架
+
+這個專案目前也包含一套給 `Jetson Nano + Logitech C922 Pro Stream Webcam` 使用的 3D 列印支架設計，目的是把系統移到 Jetson Nano 上執行，並用後方立柱與相機平台讓鏡頭能垂直向下拍攝紙面。
+
+目前設計重點：
+
+- `Jetson Nano` 托盤底座
+- 位於板子正後方的立柱基座
+- 可堆疊的高度調整立柱
+- 給 `C922` 夾具使用的 `camera_head` 平台
+- 立柱上的走線通道，方便整理 webcam 線材
+
+目前主要 STL 與生成腳本位於：
+
+- `3d_mount/`
+  - `generate_mounts.py`
+  - `jetson_nano_base.stl`
+  - `mast_base.stl`
+  - `mast_segment_50mm.stl`
+  - `camera_head.stl`
+- `hardware_stl/`
+  - 另存的一組硬體 STL 輸出
+
+目前 3D 支架尺寸摘要：
+
+- 柱子外形：`65 x 30 mm`
+- 柱子單段高度：`50 mm`
+- Nano 托盤可用區：`102 x 82 mm`
+- `jetson_nano_base.stl` 外形：`126 x 136 x 28 mm`
+- `mast_base.stl` 外形：`97 x 36 x 36 mm`
+- `mast_segment_50mm.stl` 外形：`65 x 30 x 50 mm`
+- `camera_head.stl` 外形：`65 x 150 x 26 mm`
+
+列印建議起始參數：
+
+- 材料：`PETG` 或 `PLA`
+- 層高：`0.20 mm`
+- 牆層數：`4`
+- 填充：`30%`
+- `camera_head.stl` 建議開支撐
+
+更細的接頭尺寸、裝配方式與列印說明，請看 [3d_mount/README.md](3d_mount/README.md)。
+
 ## 專案結構
 
 ```text
@@ -190,6 +233,12 @@ web/
   routes.py
   template.py
   viz.py
+3d_mount/
+  README.md
+  generate_mounts.py
+  *.stl
+hardware_stl/
+  *.stl
 tools/
   build_index.py
   calibrate_homography.py
@@ -225,6 +274,12 @@ hand_landmarker.task
 
 - `tools/visual_hanzi.py`
   - 標準字與使用者筆跡對照
+
+- `3d_mount/`
+  - Jetson Nano 與 C922 的模組化 3D 列印支架
+
+- `hardware_stl/`
+  - 目前額外輸出的 STL 成品檔
 
 ## 已知限制
 
