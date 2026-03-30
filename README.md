@@ -200,7 +200,7 @@ $env:OLLAMA_MODEL="qwen2.5:3b"
 
 - 柱子外形：`65 x 30 mm`
 - 柱子單段高度：`50 mm`
-- Nano 托盤可用區：`102 x 82 mm`
+- Nano 托盤可用區：`102 x 82 mm`，且內部為完整連續平面
 - `jetson_nano_base.stl` 外形：`126 x 136 x 28 mm`
 - `mast_base.stl` 外形：`97 x 36 x 36 mm`
 - `mast_segment_50mm.stl` 外形：`65 x 30 x 50 mm`

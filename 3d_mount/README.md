@@ -10,7 +10,7 @@ Modular 3D-printable mount for:
 
 - Mast outer profile: `65 x 30 mm`
 - Mast segment height: `50 mm`
-- Nano tray usable area: `102 x 82 mm`
+- Nano tray usable area: `102 x 82 mm` continuous flat rectangle
 - Open rear cable channel in `mast_base` and `mast_segment_50mm`
 - `camera_head` with recessed C922 clip channel and tail notch
 
@@ -54,7 +54,9 @@ The tray is sized around a `100 x 80 mm` Jetson Nano Developer Kit board envelop
 - Board envelope: `100 x 80 mm`
 - Tray usable area: `102 x 82 mm`
 
-Low ledges lift the board so underside components do not scrape the tray.
+The Nano tray interior is now fully open and continuous across the full
+`102 x 82 mm` usable area, with no internal pads or stops intruding into the
+placement rectangle.
 
 ## Printing Notes
 

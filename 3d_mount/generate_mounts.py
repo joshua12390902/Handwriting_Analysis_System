@@ -40,13 +40,11 @@ PROFILE_Y = 30
 SEGMENT_TOTAL_H = 50
 SEGMENT_BODY_H = SEGMENT_TOTAL_H - SOCKET_H - PEG_H
 
-BOARD_X = 100
-BOARD_Y = 80
-BOARD_CLEARANCE = 2
-TRAY_INNER_X = BOARD_X + BOARD_CLEARANCE
-TRAY_INNER_Y = BOARD_Y + BOARD_CLEARANCE
-SIDE_MARGIN = 12
-FRONT_MARGIN = 12
+TRAY_INNER_X = 102
+TRAY_INNER_Y = 82
+WALL_THICK = 4          # frame wall thickness around the tray
+WALL_H = 6              # wall height above tray floor
+TRAY_FLOOR = 3          # tray floor thickness
 REAR_GAP = 4
 
 
@@ -151,36 +149,54 @@ def carve_cable_channel(
 def build_nano_base() -> Set[Voxel]:
     occ: Set[Voxel] = set()
 
-    base_x = TRAY_INNER_X + SIDE_MARGIN * 2
+    # Overall outer dimensions: inner tray + walls on each side
+    SKIRT = 2  # bottom plate extends this much beyond walls on each side
+    base_x = TRAY_INNER_X + WALL_THICK * 2       # 102 + 8 = 110
+    base_y_tray = TRAY_INNER_Y + WALL_THICK * 2  # 82 + 8 = 90
+    total_wall_h = TRAY_FLOOR + WALL_H            # 3 + 6 = 9
+
+    # Rear pad for mast connection (behind tray)
     pad_x = 99
     pad_y = 38
-    base_y = FRONT_MARGIN + TRAY_INNER_Y + REAR_GAP + pad_y
-    add_box(occ, (0, 0, 0, base_x, base_y, 8))
+    base_y = base_y_tray + REAR_GAP + pad_y  # 90 + 4 + 38 = 132
 
-    tray_x0 = SIDE_MARGIN
-    tray_x1 = tray_x0 + TRAY_INNER_X
-    tray_y0 = FRONT_MARGIN
-    tray_y1 = tray_y0 + TRAY_INNER_Y
+    # 1) Bottom plate — slightly larger than frame (skirt)
+    floor_x = base_x + SKIRT * 2   # 114
+    floor_y = base_y + SKIRT * 2   # 136
+    add_box(occ, (-SKIRT, -SKIRT, 0, base_x + SKIRT, base_y + SKIRT, TRAY_FLOOR))
 
-    # Low support ledges. These raise the PCB slightly so underside components
-    # do not scrape the plate.
-    add_box(occ, (tray_x0, tray_y0 + 4, 8, tray_x0 + 4, tray_y1, 14))
-    add_box(occ, (tray_x1 - 4, tray_y0 + 4, 8, tray_x1, tray_y1, 14))
-    add_box(occ, (tray_x0, tray_y1 - 4, 8, tray_x1, tray_y1, 14))
+    # 2) Walls around the tray (outer frame, from floor to total_wall_h)
+    tray_x0 = WALL_THICK                        # 4
+    tray_x1 = WALL_THICK + TRAY_INNER_X         # 106
+    tray_y0 = WALL_THICK                         # 4
+    tray_y1 = WALL_THICK + TRAY_INNER_Y         # 86
 
-    # Small floor-mounted front stops keep the front corners lightly located
-    # without turning into tall cable blockers.
-    add_box(occ, (tray_x0, tray_y0, 8, tray_x0 + 16, tray_y0 + 4, 9.5))
-    add_box(occ, (tray_x1 - 16, tray_y0, 8, tray_x1, tray_y0 + 4, 9.5))
+    # Build walls: left, right, rear (no full front wall — leave open for wiring)
+    # Left wall
+    add_box(occ, (0, 0, TRAY_FLOOR, tray_x0, base_y_tray, total_wall_h))
+    # Right wall
+    add_box(occ, (tray_x1, 0, TRAY_FLOOR, base_x, base_y_tray, total_wall_h))
+    # Rear wall
+    add_box(occ, (tray_x0, tray_y1, TRAY_FLOOR, tray_x1, base_y_tray, total_wall_h))
 
-    # Centered rear pad directly behind the Nano tray, with clear gap from Nano area.
+    # Front: two small tabs (10mm wide x 0.5mm deep x 1mm tall)
+    tab_w = 10
+    tab_d = 0.5
+    tab_h = 1
+    # Left tab
+    add_box(occ, (tray_x0, 0, TRAY_FLOOR, tray_x0 + tab_w, tab_d, TRAY_FLOOR + tab_h))
+    # Right tab
+    add_box(occ, (tray_x1 - tab_w, 0, TRAY_FLOOR, tray_x1, tab_d, TRAY_FLOOR + tab_h))
+
+    # 3) Raised rear pad for mast base peg (centered behind tray area)
     pad_x0 = (base_x - pad_x) / 2
-    pad_y0 = tray_y1 + REAR_GAP
-    add_box(occ, (pad_x0, pad_y0, 8, pad_x0 + pad_x, pad_y0 + pad_y, 16))
+    pad_y0 = base_y_tray + REAR_GAP
+    pad_z0 = total_wall_h
+    add_box(occ, (pad_x0, pad_y0, TRAY_FLOOR, pad_x0 + pad_x, pad_y0 + pad_y, pad_z0 + 8))
 
-    # Male tenon for the mast base.
+    # 4) Male tenon for the mast base
     peg_x, peg_y = centered_peg_xy(pad_x, pad_y)
-    add_mast_peg(occ, pad_x0 + peg_x, pad_y0 + peg_y, 16)
+    add_mast_peg(occ, pad_x0 + peg_x, pad_y0 + peg_y, pad_z0 + 8)
 
     return occ
 
@@ -212,9 +228,11 @@ def build_mast_base() -> Set[Voxel]:
     # Open-backed cable channel.
     carve_cable_channel(occ, PROFILE_X, foot_y, foot_h + STEP, brace_z1, x_offset=body_x0, y_offset=0)
 
-    # Top tenon for the first mast segment.
-    peg_x, peg_y = centered_peg_xy(PROFILE_X, foot_y)
-    add_mast_peg(occ, body_x0 + peg_x, peg_y, peg_z0)
+    # Top tenon for the first mast segment — center peg in PROFILE footprint
+    # so it aligns with mast_segment's socket (centered in PROFILE_X x PROFILE_Y).
+    peg_x, peg_y = centered_peg_xy(PROFILE_X, PROFILE_Y)
+    body_y0 = (foot_y - PROFILE_Y) / 2
+    add_mast_peg(occ, body_x0 + peg_x, body_y0 + peg_y, peg_z0)
     return occ
 
 
