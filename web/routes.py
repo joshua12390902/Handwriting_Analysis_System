@@ -7,13 +7,14 @@ import time
 import cv2
 import numpy as np
 from flask import Response, jsonify, render_template_string, request
-
+from flask_cors import CORS
 import standard_loader
 import state
+
 from web import app
 from web.template import HTML_TEMPLATE
 from web.viz import draw_standard_strokes, extract_wrong_stroke_set
-
+CORS(app)
 try:
     import llm_chat
 
