@@ -91,6 +91,7 @@ def command(action: str):
         elif action == "send":       t.trigger_send()
         elif action == "auto":       t.trigger_auto_request()
         elif action == "switch_cam": t.trigger_switch_camera()
+        elif action == "calibrate":  t.trigger_calibration()
     return jsonify({"ok": True})
 
 
@@ -127,3 +128,11 @@ def chat():
             char_to_set = None
 
     return jsonify({"reply": reply, "set_char": char_to_set})
+
+
+@app.post("/set_color/<color_name>")
+def set_color(color_name: str):
+    tracker = state.app_state.get_tracker()
+    if tracker:
+        tracker.set_pen_color(color_name)
+    return jsonify({"ok": True, "color": color_name})

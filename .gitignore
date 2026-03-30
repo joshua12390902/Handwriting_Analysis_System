@@ -10,6 +10,7 @@ env/
 
 # Personal calibration & test data
 homography.npy
+calibration.json
 saved_writings/*.csv
 saved_writings/*.png
 

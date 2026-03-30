@@ -65,6 +65,15 @@ HTML_TEMPLATE = """
     .typing-dot:nth-child(2) { animation-delay:0.2s; }
     .typing-dot:nth-child(3) { animation-delay:0.4s; }
     @keyframes typing { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
+
+    .color-picker { display:flex; gap:12px; justify-content:center; margin-top:8px; margin-bottom:8px; }
+    .color-btn { width:30px; height:30px; border-radius:50%; border:3px solid transparent; cursor:pointer; transition:transform 0.2s; }
+    .color-btn:hover { transform:scale(1.12); }
+    .color-btn.active { border-color:#fff; box-shadow:0 0 10px rgba(255,255,255,0.8); }
+    .c-blue { background:#5DADE2; }
+    .c-yellow { background:#F4D03F; }
+    .c-orange { background:#EB984E; }
+    .c-pink { background:#EC7063; }
   </style>
 </head>
 <body>
@@ -88,7 +97,20 @@ HTML_TEMPLATE = """
             <button class="btn-reset" style="flex:1;" onclick="sendCommand('reset')">清除重寫</button>
         </div>
         <button id="btnSend" class="btn-send" onclick="sendCommand('send')">送出評分</button>
-        <button class="btn-reset" style="background:#555; margin-top:10px;" onclick="sendCommand('switch_cam')">📷 切換相機</button>
+
+        <div style="height:15px; border-bottom:1px solid #444; margin-bottom:10px; margin-top:5px;"></div>
+        <div style="color:#aaa; font-size:14px; margin-bottom:8px; font-weight:bold;">選取筆頭顏色</div>
+        <div class="color-picker">
+            <div class="color-btn c-blue active" onclick="setPenColor('blue', this)" title="淺藍色"></div>
+            <div class="color-btn c-yellow" onclick="setPenColor('yellow', this)" title="黃色"></div>
+            <div class="color-btn c-orange" onclick="setPenColor('orange', this)" title="橘色"></div>
+            <div class="color-btn c-pink" onclick="setPenColor('pink', this)" title="粉紅色"></div>
+        </div>
+
+        <div style="display:flex; gap:5px; margin-top:5px;">
+            <button class="btn-reset" style="background:#2980b9; flex:1;" onclick="sendCommand('calibrate')">🎯 系統校正</button>
+            <button class="btn-reset" style="background:#555; flex:1;" onclick="sendCommand('switch_cam')">📷 切換相機</button>
+        </div>
       </div>
     </div>
 
@@ -234,6 +256,12 @@ async function sendCommand(action) {
         document.getElementById('targetDisplay').style.borderColor = '#f1c40f';
     }
     await fetch('/command/' + action, {method:'POST'});
+}
+
+async function setPenColor(colorName, element) {
+    document.querySelectorAll('.color-btn').forEach(btn => btn.classList.remove('active'));
+    element.classList.add('active');
+    await fetch('/set_color/' + colorName, {method:'POST'});
 }
 
 // ── 聊天 ─────────────────────────────────────────────────────────────
