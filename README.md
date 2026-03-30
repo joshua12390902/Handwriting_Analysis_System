@@ -1,121 +1,123 @@
-# Handwriting Analysis System
+# 手寫分析系統
 
-以攝影機即時追蹤紙上手寫軌跡，分析漢字筆畫數、筆順與整體字形，並透過 Web 介面與 LLM 提供互動式練習回饋。
+這是一套以紙本書寫為核心的即時漢字手寫分析系統。  
+系統會透過攝影機擷取使用者在紙上書寫的筆跡，將資料轉成 `(timestamp, x, y, pen_state)` 的軌跡格式，再與標準字資料比對，分析筆畫數、筆順與整體字形是否合理。
 
-## 目前進度
+除了筆跡分析外，專案也包含：
+- Flask 網頁介面
+- MediaPipe 手部追蹤
+- 筆尖顏色追蹤
+- 書寫區域校正
+- 標準字筆順視覺化
+- Ollama 本地 AI 老師聊天與回饋
+- Jetson Nano 與 Logitech C922 用的 3D 列印支架設計
 
-目前已完成的主體功能：
+## 專案目前在做什麼
 
-- Flask Web 介面可即時顯示相機畫面、目標字、評分結果與標準筆畫圖
-- `PenTracker` 可持續讀取攝影機畫面並記錄 `(timestamp, x, y, pen_state)` 軌跡
-- 支援 MediaPipe 手部偵測，若初始化失敗會自動退回 HSV 顏色偵測流程
-- 支援紙張 ROI 檢查與 homography 透視校正
-- 支援錄製、重設、Undo、送評分、切換相機、隨機換題
-- 已整合 9500+ 個 `hanzi-writer` 漢字資料檔
-- 評分核心可判斷：
-  - `STROKE_COUNT_MISMATCH`
+系統主要流程如下：
+
+1. [`app.py`](app.py) 啟動 Flask 與追蹤器。
+2. [`tracker/pen_tracker.py`](tracker/pen_tracker.py) 持續讀取相機影像，偵測手與筆尖。
+3. 使用者開始錄製後，系統記錄筆跡資料。
+4. 送出分析後，由 [`compare.py`](compare.py) 和標準字資料做比對。
+5. 分析結果透過 [`state.py`](state.py) 回傳給前端。
+6. [`web/template.py`](web/template.py) 顯示目前題目、影像、結果與聊天介面。
+7. [`llm_chat.py`](llm_chat.py) 提供換字、筆畫問題、提示與 AI 回饋。
+
+## 主要功能
+
+- 即時相機畫面顯示
+- 紙張 ROI 偵測與書寫區域檢查
+- MediaPipe 手部追蹤
+- HSV 筆尖顏色追蹤
+- 筆跡錄製、復原、清空、送出分析
+- 自動換題與聊天換字
+- 標準筆順圖顯示與錯誤筆畫標示
+- 筆順驗證結果：
+  - `OK`
   - `ORDER_WRONG`
   - `WRONG_CHARACTER`
-  - `OK`
-- 送評分後會自動存出 CSV 與使用者筆跡圖到 `saved_writings/`
-- 已加入 LLM 對話與簡短教學反饋
-- 支援從聊天視窗直接指定下一題練習字
+  - `STROKE_COUNT_MISMATCH`
+- AI 老師提示與鼓勵式回饋
+- 分析後自動存出 CSV 與使用者筆跡圖到 [`saved_writings/`](saved_writings)
 
-## 系統架構
+## 目前真正有在跑的核心檔案
 
-### 1. 入口與執行模型
+- [`app.py`](app.py)
+  - 專案正式啟動入口。
+  - 現在只保留這一個啟動方式。
 
-- [app.py](app.py)
-  - 啟動 Flask
-  - 建立 `PenTracker`
-  - 主執行緒持續跑攝影機追蹤迴圈
+- [`state.py`](state.py)
+  - 共用執行狀態。
+  - 負責保存目前題目、最新畫面、分析結果、標準字資料與 tracker 參考。
 
-### 2. 執行期狀態
+- [`tracker/pen_tracker.py`](tracker/pen_tracker.py)
+  - 專案最核心的執行引擎。
+  - 負責相機讀取、手部與筆尖追蹤、錄製筆跡、校正、切題與送分析。
 
-- [state.py](state.py)
-  - 目前已收斂成單一 `AppState` 物件
-  - 統一管理：
-    - 當前 frame
-    - 目標字
-    - 標準筆畫 JSON
-    - 最新評分結果
-    - 對話指定的下一題
-    - tracker 參照
+- [`compare.py`](compare.py)
+  - 筆順驗證核心。
+  - 將使用者筆跡切成筆畫後，和標準字資料做比對。
 
-### 3. 視覺追蹤
+- [`standard_loader.py`](standard_loader.py)
+  - 載入標準字資料。
+  - 優先讀取 `standard_db/`，找不到時 fallback 到 [`hanzi/`](hanzi)。
 
-- [tracker/pen_tracker.py](tracker/pen_tracker.py)
-  - 主流程：
-    1. 讀相機畫面
-    2. 偵測紙張是否放在 ROI 內
-    3. 使用 MediaPipe 抓手部關鍵點
-    4. 沿食指方向推估筆尖搜尋區
-    5. 在搜尋區內用 HSV 找藍色筆尖
-    6. 以手勢與顏色共同決定 pen down / pen up
-    7. 將結果記錄進 `strokes_data`
+- [`llm_chat.py`](llm_chat.py)
+  - 聊天與 AI 回饋模組。
+  - 先用規則處理換字、筆畫數、筆順、提示，再視情況 fallback 給 Ollama。
 
-- [tracker/camera.py](tracker/camera.py)
-  - 相機掃描順序
-  - C922 偵測
-  - 切換相機
+- [`web/routes.py`](web/routes.py)
+  - Flask API 路由。
 
-- [tracker/calibration.py](tracker/calibration.py)
-  - 自動與手動 homography 校正
+- [`web/template.py`](web/template.py)
+  - 內嵌式前端頁面。
 
-### 4. 評分核心
+- [`web/viz.py`](web/viz.py)
+  - 標準筆順與使用者筆跡的視覺化工具。
 
-- [compare.py](compare.py)
-  - 筆畫切段
-  - 離群筆畫過濾
-  - 整字正規化
-  - Arc-length 重取樣
-  - DTW 比對
-  - 中心距離矩陣筆順偵測
+## 專案結構
 
-### 5. 標準字庫
+```text
+app.py
+compare.py
+llm_chat.py
+state.py
+standard_loader.py
+requirements.txt
+hand_landmarker.task
 
-- [standard_loader.py](standard_loader.py)
-  - 優先讀 `standard_db/`
-  - 若不存在則 fallback 讀 `hanzi/`
-  - 目前 repo 主要實際使用的是 `hanzi/` 原始資料
+tracker/
+  camera.py
+  calibration.py
+  pen_tracker.py
 
-### 6. Web 與互動
+web/
+  __init__.py
+  routes.py
+  template.py
+  viz.py
 
-- [web/routes.py](web/routes.py)
-  - `/video_feed`
-  - `/get_target`
-  - `/get_result`
-  - `/std_strokes.png`
-  - `/command/<action>`
-  - `/chat`
+tools/
+  llm_chat_smoke_test.py
+  build_index.py
+  calibrate_homography.py
+  cam_*_probe.py
+  fetch_hanziwriter.py
+  fill_empty_hanzi.py
+  generate_db.py
+  shuffle_user_strokes.py
+  visual.py
+  visual_hanzi.py
+  test.py
 
-- [web/template.py](web/template.py)
-  - 單檔前端模板
-  - 包含按鈕、結果顯示、聊天區、輪詢更新邏輯
+hanzi/
+saved_writings/
+3d_mount/
+hardware_stl/
+```
 
-### 7. LLM 輔助
-
-- [llm_chat.py](llm_chat.py)
-  - 規則式解析練習字
-  - 筆畫問題優先直接查字庫回答
-  - 其餘對話交給 Ollama
-  - 根據評分結果產生簡短繁中教學回饋
-
-## 評分流程
-
-1. 使用者按 `Record`
-2. 系統開始累積 `strokes_data`
-3. 使用者按 `Send`
-4. `PenTracker` 將軌跡切成筆畫
-5. 載入目標字標準筆畫
-6. 執行 `compare.verify_character()`
-7. 更新 Web 顯示結果
-8. 儲存：
-   - CSV 軌跡
-   - 使用者筆跡 PNG
-9. 若 LLM 可用，再產生教學反饋
-
-## 安裝
+## 安裝方式
 
 ```powershell
 git clone https://github.com/joshua12390902/Handwriting_Analysis_System.git
@@ -124,175 +126,181 @@ python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 ```
 
-## 啟動
+## 啟動方式
+
+請直接使用：
 
 ```powershell
-.\.venv\Scripts\python.exe app.py
+python app.py
 ```
 
-開啟：
+啟動後打開：
 
 ```text
 http://127.0.0.1:5000
 ```
 
-## 依賴
+## 相依套件
 
-- Python 3.10+
+相依套件定義在 [`requirements.txt`](requirements.txt)：
+
 - Flask
-- OpenCV
 - NumPy
+- OpenCV
 - Pandas
 - MediaPipe
 - pygrabber
 
-安裝列表見 [requirements.txt](requirements.txt)。
+建議 Python 版本：
 
-## LLM 設定
+- Python 3.10 以上
 
-目前 `llm_chat.py` 預設走本機 Ollama。
+## LLM 與 Ollama
 
-可用環境變數：
+聊天老師與分析回饋可搭配 Ollama 使用。
+
+可設定的環境變數：
 
 ```powershell
 $env:OLLAMA_HOST="http://localhost:11434"
 $env:OLLAMA_MODEL="qwen2.5:3b"
 ```
 
-若未啟動 Ollama：
+如果沒有啟動 Ollama：
+- 主分析流程仍然可以使用
+- 聊天中的規則型回覆仍可正常工作
+- 只有需要模型生成的部分會退化
 
-- 對話功能會失敗
-- 但影像追蹤與評分主流程仍可使用
+## 基本使用流程
 
-## 操作流程
+1. 把白紙放進畫面中的書寫框內。
+2. 在網頁中按下 `開始錄製`。
+3. 在紙上書寫目前題目。
+4. 按下 `送出分析`。
+5. 查看分析結果、標準筆順圖與 AI 回饋。
+6. 按 `下一題` 或用聊天切換字。
 
-1. 將白紙放入綠框中
-2. 按 `Record`
-3. 在紙上書寫顯示的目標字
-4. 按 `Send`
-5. 查看評分結果與標準筆畫提示
-6. 按 `Next` 換題，或在聊天區直接指定下一題
+## 聊天功能
 
-## 3D 列印硬體支架
+聊天模組目前支援這類輸入：
 
-這個專案目前也包含一套給 `Jetson Nano + Logitech C922 Pro Stream Webcam` 使用的 3D 列印支架設計，目的是把系統移到 Jetson Nano 上執行，並用後方立柱與相機平台讓鏡頭能垂直向下拍攝紙面。
+- `哈`
+- `我想學軌`
+- `這個字幾筆`
+- `提示我這個字`
+- `這好難教我`
+- `隨便換一個字`
+
+系統會優先用規則處理這些需求，讓結果更穩定，不會太依賴模型自由發揮。
+
+## 測試方式
+
+聊天 smoke test：
+
+```powershell
+python tools\llm_chat_smoke_test.py
+```
+
+語法檢查：
+
+```powershell
+python -m py_compile app.py state.py standard_loader.py llm_chat.py tracker\camera.py tracker\calibration.py tracker\pen_tracker.py web\routes.py web\template.py web\viz.py
+```
+
+## 資料
+
+- [`hanzi/`](hanzi)
+  - 專案主要字庫資料。
+  - 每個 `.json` 大致對應一個字的標準筆畫資料。
+
+- `standard_db/`
+  - 若存在，會優先作為已處理的標準字資料來源。
+
+- [`saved_writings/`](saved_writings)
+  - 儲存分析後輸出的 CSV 與使用者筆跡圖。
+
+## 3D 列印支架
+
+專案也包含給硬體展示用的 3D 列印支架設計，目標硬體為：
+
+- Jetson Nano
+- Logitech C922 Pro Stream Webcam
+
+目前主要 3D 檔案在 [`3d_mount/`](3d_mount)：
+
+- [`3d_mount/generate_mounts.py`](3d_mount/generate_mounts.py)
+- [`3d_mount/jetson_nano_base.stl`](3d_mount/jetson_nano_base.stl)
+- [`3d_mount/mast_base.stl`](3d_mount/mast_base.stl)
+- [`3d_mount/mast_segment_50mm.stl`](3d_mount/mast_segment_50mm.stl)
+- [`3d_mount/camera_head.stl`](3d_mount/camera_head.stl)
+
+目前已確認的尺寸：
+
+- `jetson_nano_base.stl`: `126 x 136 x 28 mm`
+- `mast_base.stl`: `97 x 36 x 36 mm`
+- `mast_segment_50mm.stl`: `65 x 30 x 50 mm`
+- `camera_head.stl`: `65 x 150 x 26 mm`
 
 目前設計重點：
 
-- `Jetson Nano` 托盤底座
-- 位於板子正後方的立柱基座
-- 可堆疊的高度調整立柱
-- 給 `C922` 夾具使用的 `camera_head` 平台
-- 立柱上的走線通道，方便整理 webcam 線材
-
-目前主要 STL 與生成腳本位於：
-
-- `3d_mount/`
-  - `generate_mounts.py`
-  - `jetson_nano_base.stl`
-  - `mast_base.stl`
-  - `mast_segment_50mm.stl`
-  - `camera_head.stl`
-- `hardware_stl/`
-  - 另存的一組硬體 STL 輸出
-
-目前 3D 支架尺寸摘要：
-
+- Nano 放置區可用平面：`102 x 82 mm`
 - 柱子外形：`65 x 30 mm`
 - 柱子單段高度：`50 mm`
-- Nano 托盤可用區：`102 x 82 mm`，且內部為完整連續平面
-- `jetson_nano_base.stl` 外形：`126 x 136 x 28 mm`
-- `mast_base.stl` 外形：`97 x 36 x 36 mm`
-- `mast_segment_50mm.stl` 外形：`65 x 30 x 50 mm`
-- `camera_head.stl` 外形：`65 x 150 x 26 mm`
 
-列印建議起始參數：
+建議起始列印參數：
 
 - 材料：`PETG` 或 `PLA`
 - 層高：`0.20 mm`
-- 牆層數：`4`
+- 壁數：`4`
 - 填充：`30%`
-- `camera_head.stl` 建議開支撐
 
-更細的接頭尺寸、裝配方式與列印說明，請看 [3d_mount/README.md](3d_mount/README.md)。
+更細的裝配與列印說明請看 [`3d_mount/README.md`](3d_mount/README.md)。
 
-## 專案結構
+[`hardware_stl/`](hardware_stl) 目前保留作為較早期或替代版本的 STL 輸出。
 
-```text
-app.py
-state.py
-compare.py
-standard_loader.py
-llm_chat.py
-tracker/
-  camera.py
-  calibration.py
-  pen_tracker.py
-web/
-  __init__.py
-  routes.py
-  template.py
-  viz.py
-3d_mount/
-  README.md
-  generate_mounts.py
-  *.stl
-hardware_stl/
-  *.stl
-tools/
-  build_index.py
-  calibrate_homography.py
-  cam_*_probe.py
-  fetch_hanziwriter.py
-  fill_empty_hanzi.py
-  generate_db.py
-  shuffle_user_strokes.py
-  test.py
-  visual.py
-  visual_hanzi.py
-hanzi/
-saved_writings/
-hand_landmarker.task
-```
+## 常用工具腳本
 
-## 資料與工具
+- [`tools/llm_chat_smoke_test.py`](tools/llm_chat_smoke_test.py)
+  - 測試聊天規則是否正常。
 
-- `hanzi/`
-  - 9500+ 個漢字資料
+- [`tools/build_index.py`](tools/build_index.py)
+  - 建立字庫索引。
 
-- `saved_writings/`
-  - 每次送分的 CSV 與筆跡圖
+- [`tools/fetch_hanziwriter.py`](tools/fetch_hanziwriter.py)
+  - 抓取字庫來源資料。
 
-- [tools/fill_empty_hanzi.py](tools/fill_empty_hanzi.py)
-  - 補抓原本為空的 `hanzi/*.json`
+- [`tools/generate_db.py`](tools/generate_db.py)
+  - 生成標準字資料。
+
+- [`tools/fill_empty_hanzi.py`](tools/fill_empty_hanzi.py)
+  - 補齊或修復 `hanzi/*.json`。
+
+- [`tools/calibrate_homography.py`](tools/calibrate_homography.py)
+  - 獨立校正工具。
 
 - `tools/cam_*_probe.py`
-  - 相機除錯工具
+  - 相機偵測與排查工具。
 
-- `tools/visual.py`
-  - 使用者軌跡視覺化
+- [`tools/visual.py`](tools/visual.py)
+  - 視覺化使用者筆跡資料。
 
-- `tools/visual_hanzi.py`
-  - 標準字與使用者筆跡對照
+- [`tools/visual_hanzi.py`](tools/visual_hanzi.py)
+  - 對照標準字與使用者筆跡。
 
-- `3d_mount/`
-  - Jetson Nano 與 C922 的模組化 3D 列印支架
-
-- `hardware_stl/`
-  - 目前額外輸出的 STL 成品檔
+- [`tools/shuffle_user_strokes.py`](tools/shuffle_user_strokes.py)
+  - 產生錯誤筆順樣本。
 
 ## 已知限制
 
-- 目前前端仍是單檔字串模板，維護性一般
-- 執行模式仍以單進程本機 demo 為主，不是多使用者部署架構
-- 偵測品質仍受光線、鏡頭角度、紙張位置、筆顏色影響
-- LLM 目前僅整合 Ollama，尚未抽象成多後端配置
-- `hanzi/` 資料檔目前處於整理階段，部分檔案近期有補資料變動
+- 這套系統仍然很吃硬體條件，像相機角度、光線、筆的顏色、紙張位置都會影響效果。
+- [`tracker/pen_tracker.py`](tracker/pen_tracker.py) 目前仍是最硬體耦合、最難拆的小宇宙。
+- 前端仍寫在一個模板檔裡，不是拆成獨立元件式架構。
+- Ollama 目前是單一後端整合，沒有多模型/多後端抽象。
+- 字庫很大，但不代表所有特殊字、特殊寫法都已完全驗證。
 
-## 後續建議
+## 建議後續方向
 
-- 將前端從 `web/template.py` 拆成獨立模板與靜態資源
-- 為 `compare.py` 與 `PenTracker` 加上更明確的單元測試
-- 將狀態流進一步收斂為明確的 service/controller 層
-- 為 LLM 模組增加 fallback 與 timeout UI 提示
-- 將 `hanzi/` 的補資料結果整理後正式提交
+- 持續整理 runtime 檔案內的訊息與註解一致性。
+- 若 UI 繼續成長，可把 [`web/template.py`](web/template.py) 拆出來。
+- 增加更多聊天與狀態切換 smoke test。
+- 若系統繼續擴充，建議把 tracker、analysis、chat 拆成更明確的 service 邊界。
