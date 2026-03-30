@@ -261,7 +261,6 @@ class PenTracker:
         self.strokes_data: List = []
         self.start_t: float = 0.0
         self.prev_z: float = 0.0
-        self.stroke_count: int = 0
         self.curr_stroke_frames: int = 0
         self.history: List[np.ndarray] = []
         self.idx_history: List[int] = []
@@ -287,8 +286,6 @@ class PenTracker:
         # 目前題目
         target = state.app_state.snapshot_target()
         self.curr_char = target["target_char"]
-        self.curr_hex  = target["target_hex"]
-        self.curr_ts   = target["ts"]
 
         self._load_calibration_params()
         self.reset_canvas()
@@ -443,7 +440,6 @@ class PenTracker:
         self.history      = [] if self.paint_canvas is None else [self.paint_canvas.copy()]
         self.idx_history  = [0]
         self.strokes_data = []
-        self.stroke_count = 0
         self._pen_state   = False
         self._pen_raw     = False
         self._pen_confirm = 0
@@ -456,7 +452,6 @@ class PenTracker:
                 self._try_auto_calibrate()
             self.reset_canvas()
             self.start_t      = time.time()
-            self.stroke_count = 0
 
     def trigger_undo(self) -> None:
         if self.calibration_mode:
@@ -482,8 +477,6 @@ class PenTracker:
             self.paint_canvas = self.history[-1].copy()
             self.idx_history.pop()
             self.strokes_data = self.strokes_data[: self.idx_history[-1]]
-            if self.stroke_count > 0:
-                self.stroke_count -= 1
             print("[INFO] 已撤銷最後一筆 (Undo)")
 
     def trigger_reset(self) -> None:
@@ -510,12 +503,10 @@ class PenTracker:
             new_char = random.choice(candidates)
             print(f"[INFO] 隨機切換到：{new_char}")
 
-        new_hex = new_char.encode("utf-8").hex()
         new_ts  = int(time.time() * 1000)
         self.curr_char = new_char
-        self.curr_hex  = new_hex
-        self.curr_ts   = new_ts
-        state.app_state.set_target(new_char, new_hex, new_ts)
+        state.app_state.set_target(new_char, new_ts)
+        state.app_state.set_std_json(None)
         state.app_state.reset_result(status="WAIT")
         self.reset_canvas()
 
@@ -534,9 +525,6 @@ class PenTracker:
                 result_ts=int(time.time() * 1000),
             )
             return
-
-        if not self.curr_hex:
-            self.curr_hex = self.curr_char.encode("utf-8").hex()
 
         state.app_state.update_result(status="ANALYZING")
 
@@ -638,8 +626,6 @@ class PenTracker:
             result.update({
                 "status":           "DONE",
                 "result_ts":        ts,
-                "saved_csv":        csv_path,
-                "saved_user_image": img_path,
                 "llm_feedback":     "",
                 "llm_loading":      _LLM_OK,
             })
@@ -955,8 +941,6 @@ class PenTracker:
 
         if msg.z == 1.0:
             self.curr_stroke_frames += 1
-            if self.curr_stroke_frames == 5:
-                self.stroke_count += 1
         else:
             self.curr_stroke_frames = 0
 

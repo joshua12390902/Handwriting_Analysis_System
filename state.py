@@ -1,9 +1,5 @@
-"""
-state.py — 共用執行期狀態
+"""Shared runtime state for the Flask routes and tracker loop."""
 
-將原本散落的 module-level globals 收斂到單一 AppState 物件中，
-方便追蹤跨執行緒資料流，也降低後續擴充時的維護成本。
-"""
 from __future__ import annotations
 
 import threading
@@ -16,7 +12,7 @@ import numpy as np
 
 DEFAULT_RESULT: Dict[str, Any] = {
     "status": "WAIT",
-    "message": "準備就緒",
+    "message": "請開始練字",
     "correct": None,
     "result_ts": 0,
     "llm_feedback": "",
@@ -26,12 +22,11 @@ DEFAULT_RESULT: Dict[str, Any] = {
 
 @dataclass
 class AppState:
-    """Process-wide runtime state shared by Flask routes and the tracker loop."""
+    """Process-wide state shared by Flask and the tracker."""
 
     lock: threading.Lock = field(default_factory=threading.Lock)
     frame: Optional[np.ndarray] = None
     target_char: str = "永"
-    target_hex: str = "e6b0b8"
     target_ts: int = field(default_factory=lambda: int(time.time() * 1000))
     std_json: Optional[Dict[str, Any]] = None
     result: Dict[str, Any] = field(default_factory=lambda: dict(DEFAULT_RESULT))
@@ -42,7 +37,6 @@ class AppState:
         with self.lock:
             return {
                 "target_char": self.target_char,
-                "target_hex": self.target_hex,
                 "ts": self.target_ts,
             }
 
@@ -92,10 +86,9 @@ class AppState:
         with self.lock:
             self.result = dict(result)
 
-    def set_target(self, char: str, char_hex: str, ts: int) -> None:
+    def set_target(self, char: str, ts: int) -> None:
         with self.lock:
             self.target_char = char
-            self.target_hex = char_hex
             self.target_ts = ts
 
     def current_target_char(self) -> str:

@@ -1,36 +1,31 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-app.py — 入口點
+"""Application entrypoint for the handwriting analysis system."""
 
-啟動 Flask 伺服器（背景執行緒）並執行攝影機追蹤主迴圈。
-"""
 import threading
 
 import state
-from web import app
-import web.routes  # 註冊路由（side-effect import）
 from tracker.pen_tracker import PenTracker
+from web import app
+import web.routes  # noqa: F401  # Ensure Flask routes are registered.
+
+
+def _run_flask() -> None:
+    app.run(host="0.0.0.0", port=5000, debug=False, threaded=True)
 
 
 def main() -> None:
-    # 1. Flask 跑在背景執行緒
-    print("[INFO] 啟動 Flask Web 伺服器 http://0.0.0.0:5000 ...")
-    flask_thread = threading.Thread(
-        target=lambda: app.run(host="0.0.0.0", port=5000, debug=False, threaded=True),
-        daemon=True,
-    )
+    print("[INFO] Starting Flask at http://0.0.0.0:5000 ...")
+    flask_thread = threading.Thread(target=_run_flask, daemon=True)
     flask_thread.start()
 
-    # 2. 建立 Tracker（在此之後路由才能操作 tracker）
     tracker = PenTracker()
     state.app_state.set_tracker(tracker)
 
-    # 3. 主執行緒跑攝影機迴圈（Ctrl+C 可中斷）
     try:
         tracker.run()
     except KeyboardInterrupt:
-        print("\n[INFO] 使用者中斷，正在關閉...")
+        print("\n[INFO] Keyboard interrupt received, shutting down ...")
         tracker.is_running = False
 
 

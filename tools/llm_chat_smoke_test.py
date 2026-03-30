@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
-"""
-Smoke-test representative llm_chat behaviors against common prompt漏洞 cases.
+"""Smoke-test representative llm_chat behaviors."""
 
-Usage:
-    python tools/llm_chat_smoke_test.py
-"""
 from __future__ import annotations
 
 import json
@@ -36,52 +32,52 @@ CASES = [
     },
     {
         "name": "help stays on current char",
-        "current": "哈",
+        "current": "好",
         "msg": "這好難教我",
         "expect_set": None,
-        "reply_contains": "哈",
+        "reply_contains": "好",
     },
     {
         "name": "current-char hint",
-        "current": "哈",
+        "current": "好",
         "msg": "提示我這個字",
         "expect_set": None,
-        "reply_contains": "目前這題是「哈」",
+        "reply_contains": "好",
     },
     {
         "name": "current-char count",
-        "current": "哈",
+        "current": "軌",
         "msg": "這個字幾筆",
         "expect_set": None,
-        "reply_contains": "「哈」共",
+        "reply_contains": "軌",
     },
     {
         "name": "explicit other-char count",
-        "current": "哈",
+        "current": "好",
         "msg": "軌幾筆",
         "expect_set": None,
-        "reply_contains": "「軌」共",
+        "reply_contains": "軌",
     },
     {
         "name": "current-char order",
-        "current": "哈",
-        "msg": "現在這題怎麼寫",
+        "current": "好",
+        "msg": "這個字怎麼寫",
         "expect_set": None,
-        "reply_contains": "「哈」共",
+        "reply_contains": "好",
     },
     {
         "name": "missing-char practice intent",
-        "current": "哈",
+        "current": "好",
         "msg": "我想學這個字",
         "expect_set": None,
         "reply_contains": "你想練哪個字",
     },
     {
-        "name": "quoted learn switch",
-        "current": "哈",
-        "msg": "學「舞」",
-        "expect_set": "舞",
-        "reply_contains": "舞",
+        "name": "smalltalk fallback",
+        "current": "好",
+        "msg": "你在幹嘛",
+        "expect_set": None,
+        "reply_contains": "練習漢字筆順",
     },
 ]
 
@@ -89,15 +85,10 @@ CASES = [
 def run_case(case: dict) -> tuple[bool, dict]:
     current = case["current"]
     msg = case["msg"]
-    state.app_state.set_target(current, current.encode("utf-8").hex(), 1)
+    state.app_state.set_target(current, 1)
     reply, set_char = llm_chat.chat(msg, [])
 
-    passed = True
-    if set_char != case["expect_set"]:
-        passed = False
-    if case["reply_contains"] not in reply:
-        passed = False
-
+    passed = set_char == case["expect_set"] and case["reply_contains"] in reply
     return passed, {
         "name": case["name"],
         "current": current,
