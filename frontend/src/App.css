@@ -1,0 +1,90 @@
+body { font-family: 'Segoe UI', Arial, sans-serif; background:#121212; color:#eee; margin:0; padding:20px; text-align:center; }
+.app-wrapper { min-height: 100vh; }
+h1 { margin-top: 0; margin-bottom: 20px; font-size: 24px; color: #fff; }
+
+/* --- 通用卡片與容器 --- */
+.container { display:flex; gap:20px; justify-content:center; flex-wrap:wrap; align-items:flex-start; margin-bottom:20px; }
+.card { background:#1e1e1e; border-radius:12px; padding:20px; box-shadow:0 4px 20px rgba(0,0,0,0.6); border:1px solid #333; }
+.video-feed { width:640px; height:480px; border-radius:8px; border:2px solid #444; background:#000; object-fit: cover; }
+
+/* --- 頁面 1：首頁 (Home) --- */
+.home-container { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 70vh; }
+.home-title { font-size: 36px; letter-spacing: 2px; margin-bottom: 50px; color: #eee; }
+.big-btn { 
+  background: transparent; border: 2px solid #fff; color: #fff; font-size: 28px; letter-spacing: 8px;
+  padding: 20px 60px; border-radius: 12px; margin-bottom: 25px; width: 350px; cursor: pointer;
+  transition: all 0.2s ease-in-out; 
+}
+.big-btn:hover { background: #fff; color: #121212; transform: scale(1.05); }
+.big-btn:active { transform: scale(0.95); }
+
+/* --- 頁面 2：校正頁 (Calibration) --- */
+.calib-card { background:#1e1e1e; border-radius:12px; padding:20px; box-shadow:0 4px 20px rgba(0,0,0,0.6); border:1px solid #333; width: 680px; margin: 0 auto; }
+.calib-header { display: flex; align-items: center; position: relative; margin-bottom: 15px; }
+.btn-back { background: transparent; color: #ccc; border: 1px solid #555; padding: 8px 16px; border-radius: 8px; font-size: 16px; cursor: pointer; transition: 0.2s; position: absolute; left: 0; }
+.btn-back:hover { background: #333; color: #fff; }
+.calib-title { flex: 1; text-align: center; font-size: 28px; margin: 0; letter-spacing: 4px; }
+.calib-prompt { font-size: 18px; color: #f1c40f; margin-bottom: 15px; font-weight: bold; }
+.calib-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 15px; }
+.btn-undo-calib { background: transparent; border: 2px solid #ccc; color: #ccc; padding: 10px 20px; font-size: 18px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+.btn-undo-calib:hover { background: #ccc; color: #121212; }
+.calib-color-text { font-size: 16px; color: #aaa; margin-bottom: 8px; text-align: right; font-weight: bold; }
+
+/* --- 頁面 3：練習頁 (Practice) 原有樣式 --- */
+.target-char { font-size:140px; font-weight:bold; color:#f1c40f; border:3px dashed #555; width:220px; height:220px; line-height:220px; border-radius:15px; margin:0 auto; transition:all 0.3s; }
+.target-meta { color:#888; font-size:13px; margin-top:8px; min-height:20px; }
+.btn-group { margin-top:20px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
+button { padding:12px 24px; font-size:16px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; color:white; transition:transform 0.1s, opacity 0.2s; }
+button:active:not(:disabled) { transform: scale(0.95); }
+button:disabled { background:#333 !important; color:#777; cursor:not-allowed; transform:none; box-shadow:none; border:1px solid #444; }
+
+.btn-auto { background:#8e44ad; width:100%; font-size:18px; }
+.btn-rec { background:#c0392b; }
+.btn-undo { background:#d35400; }
+.btn-reset { background:#7f8c8d; }
+.btn-send { background:#27ae60; width:100%; font-size:18px; }
+
+.result-section { width:100%; max-width:680px; margin-top:10px; margin-left: auto; margin-right: auto;}
+.badge { display:inline-block; padding:8px 16px; border-radius:20px; font-size:20px; font-weight:bold; margin-bottom:10px; }
+.badge-ok { background:#27ae60; color:white; box-shadow:0 0 15px #27ae60; }
+.badge-bad { background:#c0392b; color:white; box-shadow:0 0 15px #c0392b; }
+.badge-wait { background:#7f8c8d; color:white; }
+.badge-load { background:#f39c12; color:black; animation:pulse 1s infinite; }
+.instruction { font-size:24px; font-weight:bold; margin:10px 0; color:#aaa; }
+.hint-text { color:#f39c12; font-weight:bold; font-size:18px; margin-top:5px; }
+.std-img { width:320px; height:320px; border:1px solid #555; border-radius:10px; background:#000; object-fit:contain; }
+
+.llm-feedback { background:#1a2a1a; border:1px solid #2d5a2d; border-radius:8px; padding:12px 16px; margin-top:12px; color:#a8d8a8; font-size:16px; line-height:1.6; text-align:left; }
+.llm-feedback.loading { color:#888; border-color:#444; background:#1a1a1a; animation:pulse 1s infinite; }
+.llm-label { font-size:12px; color:#666; margin-bottom:4px; }
+
+.chat-section { width:100%; max-width:680px; margin:12px auto 0; }
+.chat-box { background:#1a1a2e; border:1px solid #333; border-radius:12px; padding:16px; }
+.chat-title { color:#aaa; font-size:14px; margin-bottom:10px; text-align:left; }
+.chat-history { min-height:40px; max-height:220px; overflow-y:auto; margin-bottom:10px; padding-right: 5px; }
+.chat-msg { padding:6px 10px; border-radius:8px; margin:4px 0; font-size:15px; text-align:left; word-break: break-word; }
+.chat-msg.user { background:#2c3e50; color:#ecf0f1; margin-left:40px; }
+.chat-msg.bot { background:#1e3a2f; color:#a8d8a8; margin-right:40px; }
+.chat-msg.set { background:#3a2800; color:#f39c12; font-size:13px; text-align:center; margin:2px 0; }
+.chat-input-row { display:flex; gap:8px; }
+.chat-input-row input { flex:1; padding:10px 14px; border-radius:8px; border:1px solid #444; background:#2a2a2a; color:#eee; font-size:15px; }
+.chat-input-row input:focus { outline:none; border-color:#8e44ad; }
+.chat-send-btn { padding:10px 20px; background:#8e44ad; border:none; border-radius:8px; color:white; font-size:15px; cursor:pointer; white-space:nowrap; }
+.chat-send-btn:disabled { background:#444; cursor:not-allowed; }
+
+.typing-dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#888; margin:0 2px; animation:typing 1s infinite; }
+.typing-dot:nth-child(2) { animation-delay:0.2s; }
+.typing-dot:nth-child(3) { animation-delay:0.4s; }
+
+.color-picker { display:flex; gap:12px; justify-content:center; }
+.color-btn { width:30px; height:30px; border-radius:50%; border:3px solid transparent; cursor:pointer; transition:transform 0.2s; }
+.color-btn:hover { transform:scale(1.12); }
+.color-btn.active { border-color:#fff; box-shadow:0 0 10px rgba(255,255,255,0.8); }
+.c-blue { background:#5DADE2; }
+.c-yellow { background:#F4D03F; }
+.c-orange { background:#EB984E; }
+.c-pink { background:#EC7063; }
+
+.chat-history::-webkit-scrollbar { width: 6px; }
+.chat-history::-webkit-scrollbar-track { background: transparent; }
+.chat-history::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }

@@ -73,8 +73,8 @@ RISE_COEFFS = [0.0, 0.0, -105.0]
 PEN_EXTEND = 1.0
 MP_SEARCH_RADIUS = 200
 
-FRONT_STAGE_TEST_MODE   = False   # True → 跳過評分，僅測試前端流程
-AUTO_CALIBRATE_ON_RECORD = True   # True → 每次按 Record 自動校正 homography
+FRONT_STAGE_TEST_MODE   = False   
+AUTO_CALIBRATE_ON_RECORD = True   
 
 SAVE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "saved_writings")
 os.makedirs(SAVE_DIR, exist_ok=True)
@@ -213,8 +213,6 @@ def generate_calibration_ui_points(roi_x1: int, roi_y1: int, roi_x2: int, roi_y2
     return points
 
 
-# ── 簡易 Point 替代 ROS geometry_msgs.msg.Point ───────────────────────
-
 class _Point:
     def __init__(self, x: float = -1.0, y: float = -1.0, z: float = 0.0):
         self.x, self.y, self.z = float(x), float(y), float(z)
@@ -233,12 +231,10 @@ class PenTracker:
         self.roi_area = (self.roi_x2 - self.roi_x1) * (self.roi_y2 - self.roi_y1)
         self.is_paper_ready = False
 
-        # 相機
         self.cap, self.current_camera_index = open_camera()
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
-        # Homography
         project_root = os.path.dirname(os.path.dirname(__file__))
         self._h_save_path = os.path.join(project_root, "homography.npy")
         if os.path.exists(self._h_save_path):
@@ -246,15 +242,12 @@ class PenTracker:
             print("[INFO] 載入既有的 homography 矩陣。")
         else:
             self.M = None
-            
 
-        # MediaPipe
         self.hand_detector = None
         self._mp_timestamp: int = 0
         self.mediapipe_ready = False
         self._init_mediapipe()
 
-        # 畫布 & 錄製狀態
         self.paint_canvas: Optional[np.ndarray] = None
         self.last_pos: Optional[Tuple[int, int]] = None
         self.is_recording = False
@@ -265,10 +258,9 @@ class PenTracker:
         self.history: List[np.ndarray] = []
         self.idx_history: List[int] = []
 
-        # Hysteresis pen state machine
-        self._pen_state: bool = False   # 目前確認的筆狀態（True=下筆）
-        self._pen_raw:   bool = False   # 上一幀的原始訊號
-        self._pen_confirm: int = 0      # 連續同方向幀數
+        self._pen_state: bool = False
+        self._pen_raw:   bool = False
+        self._pen_confirm: int = 0
         self.last_dx: float = -1.0
         self.last_dy: float = 1.0
         self.hsv_lower = PEN_COLORS["blue"]["lower"]
@@ -283,16 +275,12 @@ class PenTracker:
         self.corner_points: List[Tuple[int, int]] = []
         self.stationary_pos: Optional[Tuple[int, int]] = None
 
-        # 目前題目
         target = state.app_state.snapshot_target()
         self.curr_char = target["target_char"]
 
         self._load_calibration_params()
         self.reset_canvas()
 
-    # ── 初始化 ────────────────────────────────────────────────────────
-
-    # 手部骨架連線（MediaPipe 21 個關鍵點的連線對）
     HAND_CONNECTIONS = [
         (0,1),(1,2),(2,3),(3,4),
         (0,5),(5,6),(6,7),(7,8),
@@ -304,14 +292,12 @@ class PenTracker:
 
     def _init_mediapipe(self) -> None:
         if mp is None or mp_tasks is None:
-            print("[WARN] mediapipe 未安裝，使用 HSV+ROI 偵測。")
+            print("[WARN] mediapipe 套件未安裝。")
             return
         try:
-            model_path = os.path.join(
-                os.path.dirname(os.path.dirname(__file__)), "hand_landmarker.task"
-            )
-            if not os.path.exists(model_path):
-                print(f"[WARN] 找不到 {model_path}，無法啟用 MediaPipe。")
+            model_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "hand_landmarker.task")
+            if not os.path.exists(model_path): 
+                print(f"[WARN] 找不到 {model_path}")
                 return
             base_opts = mp_tasks.BaseOptions(model_asset_path=model_path)
             options   = mp_vision.HandLandmarkerOptions(
@@ -326,41 +312,44 @@ class PenTracker:
             self.mediapipe_ready = True
             print("[INFO] MediaPipe HandLandmarker 初始化成功。")
         except Exception as e:
-            print(f"[WARN] MediaPipe HandLandmarker 無法啟用，改用 HSV+ROI。原因: {e}")
+            print(f"[WARN] MediaPipe 初始化失敗: {e}")
 
     def set_pen_color(self, color_name: str) -> None:
         if color_name in PEN_COLORS:
             self.hsv_lower = PEN_COLORS[color_name]["lower"]
             self.hsv_upper = PEN_COLORS[color_name]["upper"]
-            print(f"[INFO] 筆頭顏色已切換為：{color_name}")
 
     def _load_calibration_params(self) -> None:
+        global AREA_COEFFS, RISE_COEFFS, PEN_EXTEND
         if not os.path.exists(CALIB_FILE_PATH):
+            self.roi_x1, self.roi_y1 = 50, 50
+            self.roi_x2, self.roi_y2 = 590, 430
+            self.roi_area = (self.roi_x2 - self.roi_x1) * (self.roi_y2 - self.roi_y1)
+            AREA_COEFFS = [0.0, 0.0, 400.0]
+            RISE_COEFFS = [0.0, 0.0, -105.0]
+            PEN_EXTEND = 1.0
             return
+            
         try:
             with open(CALIB_FILE_PATH, "r", encoding="utf-8") as f:
                 params = json.load(f)
-
-            global AREA_COEFFS, RISE_COEFFS, PEN_EXTEND
+            
             if "AREA_COEFFS" in params:
                 AREA_COEFFS = params["AREA_COEFFS"]
                 RISE_COEFFS = params["RISE_COEFFS"]
             else:
                 AREA_COEFFS = [0.0, 0.0, params.get("BASE_THRESHOLD", 400.0)]
                 RISE_COEFFS = [0.0, 0.0, params.get("RISE_THRESHOLD", -105.0)]
-
             PEN_EXTEND = params.get("PEN_EXTEND", PEN_EXTEND)
             self.roi_x1 = params.get("ROI_X1", self.roi_x1)
             self.roi_y1 = params.get("ROI_Y1", self.roi_y1)
             self.roi_x2 = params.get("ROI_X2", self.roi_x2)
             self.roi_y2 = params.get("ROI_Y2", self.roi_y2)
             self.roi_area = (self.roi_x2 - self.roi_x1) * (self.roi_y2 - self.roi_y1)
-            print("[INFO] 成功載入使用者專屬校正檔與紙張範圍！")
-        except Exception as e:
-            print(f"[WARN] 讀取校正檔失敗：{e}")
+        except Exception:
+            pass
 
     def trigger_calibration(self) -> None:
-        print("[INFO] 進入校準模式：請先用筆尖定義紙張四個角落")
         self.calibration_mode = True
         self.calibration_collector = CalibrationCollector()
         self.calibration_points = {}
@@ -373,66 +362,43 @@ class PenTracker:
 
     def _finish_calibration(self) -> None:
         try:
-            if self.calibration_collector is None:
-                raise ValueError("校正資料不存在")
-
+            if self.calibration_collector is None: return
             params = self.calibration_collector.calculate_parameters()
             global AREA_COEFFS, RISE_COEFFS, PEN_EXTEND
             AREA_COEFFS = params["AREA_COEFFS"]
             RISE_COEFFS = params["RISE_COEFFS"]
             PEN_EXTEND = params["PEN_EXTEND"]
-
             params["ROI_X1"] = self.roi_x1
             params["ROI_Y1"] = self.roi_y1
             params["ROI_X2"] = self.roi_x2
             params["ROI_Y2"] = self.roi_y2
-
             with open(CALIB_FILE_PATH, "w", encoding="utf-8") as f:
                 json.dump(params, f, indent=4, ensure_ascii=False)
-
-            print(f"[INFO] 校準完成，參數已儲存到 {CALIB_FILE_PATH}")
-        except Exception as e:
-            print(f"[ERROR] 校準失敗：{e}")
+        except Exception:
+            pass
         finally:
             self.calibration_mode = False
 
-    # ── 相機切換 ──────────────────────────────────────────────────────
-
     def trigger_switch_camera(self) -> None:
-        print("[INFO] 收到切換相機請求")
-
         def _do():
             scan_order = build_camera_order(self.current_camera_index)
-            # 排除目前正在用的相機，避免只有一台時切到自己然後壞掉
             scan_order = [i for i in scan_order if i != self.current_camera_index]
-            if not scan_order:
-                print("[WARN] 只有一台相機，無法切換")
-                return
+            if not scan_order: return
             try:
                 new_cap, new_idx = open_camera(camera_order=scan_order)
-            except Exception as e:
-                print(f"[WARN] 切換相機失敗（可能只有一台相機）：{e}")
-                return
+            except Exception: return
             new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
             new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
             with self.cap_lock:
                 old_cap, self.cap = self.cap, new_cap
                 self.current_camera_index = new_idx
-            try:
-                old_cap.release()
-            except Exception:
-                pass
-
+            try: old_cap.release()
+            except Exception: pass
         threading.Thread(target=_do, daemon=True).start()
 
-    # ── 透視校正 ──────────────────────────────────────────────────────
-
     def _try_auto_calibrate(self) -> None:
-        # 直接使用目前 ROI 範圍作為紙張邊界
         roi = (self.roi_x1, self.roi_y1, self.roi_x2, self.roi_y2)
         self.M = manual_calibrate(roi, self._h_save_path)
-
-    # ── 畫布管理 ──────────────────────────────────────────────────────
 
     def reset_canvas(self) -> None:
         if self.paint_canvas is not None:
@@ -446,12 +412,10 @@ class PenTracker:
 
     def trigger_record(self) -> None:
         self.is_recording = not self.is_recording
-        print(f"[INFO] 錄影狀態切換: {'開始' if self.is_recording else '停止'}")
         if self.is_recording:
-            if AUTO_CALIBRATE_ON_RECORD:
-                self._try_auto_calibrate()
+            if AUTO_CALIBRATE_ON_RECORD: self._try_auto_calibrate()
             self.reset_canvas()
-            self.start_t      = time.time()
+            self.start_t = time.time()
 
     def trigger_undo(self) -> None:
         if self.calibration_mode:
@@ -460,40 +424,30 @@ class PenTracker:
                     self.corner_points.pop()
                     self.stationary_pos = None
                     self.calib_hover_frames = 0
-                    print(f"[INFO] 已退回第 {len(self.corner_points) + 1} 個角")
                 return
-
             if self.current_calibration_idx > 0 and self.calibration_collector is not None:
                 self.current_calibration_idx -= 1
                 self.calib_hover_frames = 0
                 self.calib_cooldown = 0
                 self.stationary_pos = None
                 self.calibration_collector.pop_and_restore()
-                print(f"[INFO] 已退回步驟 {self.current_calibration_idx + 1}/18")
             return
-
         if len(self.history) > 1:
             self.history.pop()
             self.paint_canvas = self.history[-1].copy()
             self.idx_history.pop()
             self.strokes_data = self.strokes_data[: self.idx_history[-1]]
-            print("[INFO] 已撤銷最後一筆 (Undo)")
 
     def trigger_reset(self) -> None:
-        print("[INFO] 清除畫布 (Reset)")
+        if self.calibration_mode:
+            self.calibration_mode = False
+            self._load_calibration_params()
         self.reset_canvas()
 
-    # ── 換題 ─────────────────────────────────────────────────────────
-
     def trigger_auto_request(self) -> None:
-        print("[INFO] 收到下一題請求")
-
-        # 優先使用學生對話中指定的字
         requested = state.app_state.pop_requested_char()
-
         if requested:
             new_char = requested
-            print(f"[INFO] 使用學生指定字：{new_char}")
         else:
             hanzi_dir  = standard_loader.RAW_HANZI_DIR
             candidates = [p.stem for p in hanzi_dir.glob("*.json") if p.stem != self.curr_char]
@@ -501,8 +455,6 @@ class PenTracker:
                 state.app_state.update_result(status="WAIT")
                 return
             new_char = random.choice(candidates)
-            print(f"[INFO] 隨機切換到：{new_char}")
-
         new_ts  = int(time.time() * 1000)
         self.curr_char = new_char
         state.app_state.set_target(new_char, new_ts)
@@ -510,57 +462,29 @@ class PenTracker:
         state.app_state.reset_result(status="WAIT")
         self.reset_canvas()
 
-    # ── 評分 ─────────────────────────────────────────────────────────
-
     def trigger_send(self) -> None:
         self.is_recording = False
-        print(f"\n[INFO] 正在處理 {len(self.strokes_data)} 個筆跡軌跡點...")
-
         if FRONT_STAGE_TEST_MODE:
-            state.app_state.update_result(
-                status="DONE",
-                correct=True,
-                wrong_idx=-1,
-                message="前段測試模式：已收到筆跡資料（未進行評分）",
-                result_ts=int(time.time() * 1000),
-            )
+            state.app_state.update_result(status="DONE", correct=True, wrong_idx=-1, message="TEST", result_ts=int(time.time() * 1000))
             return
-
         state.app_state.update_result(status="ANALYZING")
-
         threading.Thread(target=self._run_compare_analysis, daemon=True).start()
 
-    def _segment_strokes_from_data(
-        self,
-        gap_tolerance: int   = 2,
-        min_points:    int   = 10,
-        min_path_len:  float = 25.0,
-        min_bbox_diag: float = 10.0,
-    ) -> List[List[Tuple[float, float]]]:
-        strokes: List[List[Tuple[float, float]]] = []
-        current: List[Tuple[float, float]] = []
+    def _segment_strokes_from_data(self, gap_tolerance=2, min_points=10, min_path_len=25.0, min_bbox_diag=10.0):
+        strokes = []
+        current = []
         in_stroke = False
         zero_run  = 0
         border_margin = 20.0
-
-        def _append_if_valid(pts: List[Tuple[float, float]]) -> None:
-            if len(pts) < min_points:
-                return
+        def _append_if_valid(pts):
+            if len(pts) < min_points: return
             arr = np.array(pts, dtype=np.float32)
             path_len  = float(np.linalg.norm(arr[1:] - arr[:-1], axis=1).sum()) if len(arr) > 1 else 0.0
             bbox_diag = float(np.linalg.norm(arr.max(axis=0) - arr.min(axis=0)))
             center    = arr.mean(axis=0)
-            near_border = (
-                center[0] < self.roi_x1 + border_margin
-                or center[0] > self.roi_x2 - border_margin
-                or center[1] < self.roi_y1 + border_margin
-                or center[1] > self.roi_y2 - border_margin
-            )
-            if near_border and path_len < 80.0 and bbox_diag < 30.0:
-                return
-            if path_len >= min_path_len and bbox_diag >= min_bbox_diag:
-                strokes.append(pts)
-
+            near_border = (center[0] < self.roi_x1 + border_margin or center[0] > self.roi_x2 - border_margin or center[1] < self.roi_y1 + border_margin or center[1] > self.roi_y2 - border_margin)
+            if near_border and path_len < 80.0 and bbox_diag < 30.0: return
+            if path_len >= min_path_len and bbox_diag >= min_bbox_diag: strokes.append(pts)
         for _, x, y, pen_state in self.strokes_data:
             if int(pen_state) == 1:
                 if not in_stroke:
@@ -577,144 +501,81 @@ class PenTracker:
                         zero_run  = 0
                         _append_if_valid(current)
                         current = []
-
-        if in_stroke:
-            _append_if_valid(current)
-
+        if in_stroke: _append_if_valid(current)
         return strokes
 
     def _run_compare_analysis(self) -> None:
         try:
-            if compare_core is None:
-                raise RuntimeError("compare.py 無法載入，請確認 pandas / numpy 依賴完整")
-
+            if compare_core is None: raise RuntimeError("compare.py ERROR")
             user_strokes = self._segment_strokes_from_data()
             std_entry    = standard_loader.load_standard_entry(self.curr_char)
             std_strokes  = standard_loader.load_standard(self.curr_char)
-
-            ts      = int(time.time() * 1000)
-            dt      = time.strftime("%Y%m%d_%H%M%S", time.localtime(ts / 1000))
-            ms      = ts % 1000
-            char_s  = "".join(c if c not in r'\/:*?"<>|' else "_" for c in self.curr_char)
-
+            ts = int(time.time() * 1000)
+            dt = time.strftime("%Y%m%d_%H%M%S", time.localtime(ts / 1000))
+            ms = ts % 1000
+            char_s = "".join(c if c not in r'\/:*?"<>|' else "_" for c in self.curr_char)
             state.app_state.set_std_json(std_entry)
-
-            result = compare_core.verify_character(
-                user_strokes=user_strokes,
-                std_strokes=std_strokes,
-                target_char=self.curr_char,
-            )
-
+            result = compare_core.verify_character(user_strokes=user_strokes, std_strokes=std_strokes, target_char=self.curr_char)
             status_tag = "PASS" if result.get("correct") else "FAIL"
             base_name  = f"{dt}_{ms:03d}_{char_s}_{status_tag}"
-
-            # 存 CSV
             csv_path = os.path.join(SAVE_DIR, f"{base_name}.csv")
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerows(
-                    [["timestamp", "x", "y", "pen_state"]] + list(self.strokes_data)
-                )
-
-            # 存使用者筆畫圖
+                csv.writer(f).writerows([["timestamp", "x", "y", "pen_state"]] + list(self.strokes_data))
             img = draw_user_strokes(user_strokes)
             img_path = os.path.join(SAVE_DIR, f"{base_name}_user.png")
             ok, buf = cv2.imencode(".png", img)
             if ok:
-                with open(img_path, "wb") as fimg:
-                    fimg.write(buf.tobytes())
-
-            result.update({
-                "status":           "DONE",
-                "result_ts":        ts,
-                "llm_feedback":     "",
-                "llm_loading":      _LLM_OK,
-            })
+                with open(img_path, "wb") as fimg: fimg.write(buf.tobytes())
+            result.update({"status": "DONE", "result_ts": ts, "llm_feedback": "", "llm_loading": _LLM_OK})
             result.setdefault("wrong_idx", -1)
             result["target_char"] = self.curr_char
-
             state.app_state.replace_result(result)
-            print(f"[INFO] 分析結果：{result.get('status')} / {result.get('message', '')}")
-
-            # LLM 反饋（在同一 thread 裡，避免競爭）
             if _LLM_OK:
                 try:
-                    feedback = _llm_chat.get_feedback(result)
-                    state.app_state.update_result(
-                        llm_feedback=feedback,
-                        llm_loading=False,
-                    )
-                    print(f"[INFO] LLM 反饋已產生")
-                except Exception as e:
-                    print(f"[WARN] LLM 反饋失敗: {e}")
+                    feedback = _llm_chat.get_feedback(result, user_strokes=user_strokes, std_strokes=std_strokes)
+                    state.app_state.update_result(llm_feedback=feedback, llm_loading=False)
+                except Exception:
                     state.app_state.update_result(llm_loading=False)
-
         except Exception as e:
-            print(f"[ERROR] 評分流程失敗: {e}")
-            state.app_state.replace_result({
-                "status":    "DONE",
-                "correct":   False,
-                "wrong_idx": -1,
-                "message":   f"評分失敗：{e}",
-                "reason":    {"failed_rule": "ANALYSIS_ERROR"},
-                "result_ts": int(time.time() * 1000),
-            })
-
-    # ── Hysteresis 輔助 ───────────────────────────────────────────────
+            state.app_state.replace_result({"status": "DONE", "correct": False, "wrong_idx": -1, "message": f"評分失敗：{e}", "reason": {"failed_rule": "ANALYSIS_ERROR"}, "result_ts": int(time.time() * 1000)})
 
     def _calc_back_finger_rise(self, landmarks, h: int) -> float:
-        """計算後三指（中指、無名指、小指）相對手腕的垂直位移。
-        回傳 avg_tip_y - wrist_y（像素）。
-        值小（負）→ 手指比手腕高（下筆姿勢）
-        值大（正）→ 手指比手腕低（提筆姿勢）
-        """
         wrist_y   = landmarks[0].y * h
         avg_tip_y = sum(landmarks[i].y * h for i in [12, 16, 20]) / 3
         return avg_tip_y - wrist_y
 
     def _update_pen_hysteresis(self, raw_down: bool) -> None:
-        """更新 pen-state 狀態機（含 hysteresis）。"""
         FRAMES_TO_DOWN = 3
         FRAMES_TO_UP   = 3
-        if raw_down == self._pen_raw:
-            self._pen_confirm += 1
+        if raw_down == self._pen_raw: self._pen_confirm += 1
         else:
-            self._pen_raw     = raw_down
+            self._pen_raw = raw_down
             self._pen_confirm = 1
-        if not self._pen_state and raw_down and self._pen_confirm >= FRAMES_TO_DOWN:
-            self._pen_state = True
-        elif self._pen_state and not raw_down and self._pen_confirm >= FRAMES_TO_UP:
-            self._pen_state = False
+        if not self._pen_state and raw_down and self._pen_confirm >= FRAMES_TO_DOWN: self._pen_state = True
+        elif self._pen_state and not raw_down and self._pen_confirm >= FRAMES_TO_UP: self._pen_state = False
 
     def _force_pen_up(self) -> None:
-        """無輪廓或面積太小時，直接送 pen-up 訊號給狀態機。"""
         self._update_pen_hysteresis(False)
 
-    # ── 主迴圈 ────────────────────────────────────────────────────────
-
     def run(self) -> None:
-        print("[INFO] 影像處理引擎已啟動，按 Ctrl+C 結束程式。")
         try:
             while self.is_running:
                 self.loop()
-                time.sleep(0.033)   # ~30 FPS
+                time.sleep(0.033)
         finally:
-            with self.cap_lock:
-                self.cap.release()
+            with self.cap_lock: self.cap.release()
 
     def loop(self) -> None:
         with self.cap_lock:
             ret, frame = self.cap.read()
-        if not ret:
-            return
+        if not ret: return
         frame = cv2.flip(frame, -1)
 
-        # 初始化畫布
         if self.paint_canvas is None or self.paint_canvas.shape != frame.shape:
             self.paint_canvas = np.zeros_like(frame)
             self.history      = [self.paint_canvas.copy()]
             self.idx_history  = [0]
 
-        # ── 紙張就緒偵測 ──────────────────────────────────────────────
         roi_img = frame[self.roi_y1:self.roi_y2, self.roi_x1:self.roi_x2]
         gray_roi = cv2.cvtColor(roi_img, cv2.COLOR_BGR2GRAY)
         _, mask_paper = cv2.threshold(gray_roi, 130, 255, cv2.THRESH_BINARY)
@@ -723,16 +584,13 @@ class PenTracker:
 
         if not self.is_recording:
             if not self.is_paper_ready:
-                if paper_ratio > 0.85:
-                    self.is_paper_ready = True
-            elif paper_ratio < 0.50:
-                self.is_paper_ready = False
+                if paper_ratio > 0.85: self.is_paper_ready = True
+            elif paper_ratio < 0.50: self.is_paper_ready = False
 
         paper_ready_now = self.is_paper_ready or self.is_recording
         box_color = (0, 255, 0) if paper_ready_now else (0, 0, 255)
         status_text = "Ready! Please write inside." if paper_ready_now else "Align paper inside the box..."
 
-        # ── MediaPipe 手部追蹤（核心）─────────────────────────────────
         mp_result = None
         hand_detected = False
         if self.mediapipe_ready and self.hand_detector is not None:
@@ -757,19 +615,16 @@ class PenTracker:
         if mp_result is not None and mp_result.hand_landmarks:
             landmarks = mp_result.hand_landmarks[0]
             hand_detected = True
-
             lm6 = landmarks[6]
             lm8 = landmarks[8]
             dx = (lm8.x - lm6.x) * w_f
             dy = (lm8.y - lm6.y) * h_f
             self.last_dx = dx
             self.last_dy = dy
-
             fx = int(lm8.x * w_f + dx * PEN_EXTEND)
             fy = int(lm8.y * h_f + dy * PEN_EXTEND)
             rise = self._calc_back_finger_rise(landmarks, h_f)
             has_search_center = True
-
             for a, b in self.HAND_CONNECTIONS:
                 la, lb = landmarks[a], landmarks[b]
                 cv2.line(frame, (int(la.x * w_f), int(la.y * h_f)), (int(lb.x * w_f), int(lb.y * h_f)), (200, 200, 200), 1, cv2.LINE_AA)
@@ -784,6 +639,7 @@ class PenTracker:
             search_radius = int(MP_SEARCH_RADIUS * 1.5)
             rise = RISE_COEFFS[0] * fx + RISE_COEFFS[1] * fy + RISE_COEFFS[2] - 10
             has_search_center = True
+
             cv2.circle(frame, (fx, fy), search_radius, (0, 165, 255), 2)
             cv2.putText(frame, "Edge Tracking", (fx - 45, fy - search_radius - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 165, 255), 2)
 
@@ -794,17 +650,45 @@ class PenTracker:
             has_search_center = True
 
         if has_search_center:
+            # 1. 建立空的遮罩與基礎搜尋範圍（紫色圈圈）
             finger_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
-            cv2.circle(finger_mask, (fx, fy), search_radius, 255, -1)
+            search_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+            
+            # 在 search_mask 畫出搜尋範圍
+            cv2.circle(search_mask, (fx, fy), search_radius, 255, -1)
             if self.last_pos is not None:
-                cv2.circle(finger_mask, self.last_pos, int(MP_SEARCH_RADIUS * 1.5), 255, -1)
+                cv2.circle(search_mask, self.last_pos, int(MP_SEARCH_RADIUS * 1.5), 255, -1)
+            
+            # 2. 判斷是否在校正模式外
+            if not is_corner_calib:
+                # 建立紙張範圍遮罩（包含 30 像素邊緣緩衝）
+                roi_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+                margin = 30
+                safe_x1 = max(0, self.roi_x1 - margin)
+                safe_y1 = max(0, self.roi_y1 - margin)
+                safe_x2 = min(frame.shape[1], self.roi_x2 + margin)
+                safe_y2 = min(frame.shape[0], self.roi_y2 + margin)
+                cv2.rectangle(roi_mask, (safe_x1, safe_y1), (safe_x2, safe_y2), 255, -1)
+                
+                # 核心改動：檢查「紫色搜尋圈」與「紙張範圍」是否有重疊
+                overlap = cv2.bitwise_and(search_mask, roi_mask)
+                
+                # 如果有任何重疊點，則 finger_mask 直接使用完整的 search_mask（不裁切邊界）
+                if cv2.countNonZero(overlap) > 0:
+                    finger_mask = search_mask
+                else:
+                    # 完全沒碰到框框，則不偵測
+                    finger_mask = np.zeros(frame.shape[:2], dtype=np.uint8)
+            else:
+                # 校正點四角階段，直接使用搜尋圈
+                finger_mask = search_mask
 
+            # 3. 接下來進行顏色偵測（以下保持原樣）
             hsv = cv2.cvtColor(frame.copy(), cv2.COLOR_BGR2HSV)
             color_mask = cv2.inRange(hsv, self.hsv_lower, self.hsv_upper)
             mask = cv2.bitwise_and(color_mask, finger_mask)
             mask = cv2.erode(mask, None, iterations=2)
             mask = cv2.dilate(mask, None, iterations=2)
-
             cnts, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             valid_cnts = [c for c in cnts if cv2.contourArea(c) > 5]
 
@@ -843,8 +727,13 @@ class PenTracker:
                     color = (0, 255, 0) if writing else (0, 0, 255)
 
                     cv2.circle(frame, (cx, cy), 10, color, 3)
-                    cv2.putText(frame, f"Area: {area:.0f} / {thr:.0f}", (cx + 15, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                    cv2.putText(frame, f"Rise: {rise:.0f} / {rise_thresh_current:.0f}", (cx + 15, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+                    if self.calibration_mode:
+                        cv2.putText(frame, f"Area: {area:.0f}", (cx + 15, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                        cv2.putText(frame, f"Rise: {rise:.0f}", (cx + 15, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    else:
+                        cv2.putText(frame, f"Area: {area:.0f} / {thr:.0f}", (cx + 15, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                        cv2.putText(frame, f"Rise: {rise:.0f} / {rise_thresh_current:.0f}", (cx + 15, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
                     if self.calibration_mode and self.calibration_collector is not None:
                         if len(self.corner_points) < 4:
@@ -860,7 +749,6 @@ class PenTracker:
                                         self.corner_points.append(self.stationary_pos)
                                         self.stationary_pos = None
                                         self.calib_hover_frames = 0
-
                                         if len(self.corner_points) == 4:
                                             xs = [p[0] for p in self.corner_points]
                                             ys = [p[1] for p in self.corner_points]
@@ -870,11 +758,9 @@ class PenTracker:
                                             self.calibration_points = generate_calibration_ui_points(self.roi_x1, self.roi_y1, self.roi_x2, self.roi_y2)
                                             self.current_calibration_idx = 0
                                             self.calib_cooldown = 45
-                                            print("[INFO] 紙張範圍已更新，進入筆畫收集階段。")
                                 else:
                                     self.stationary_pos = (cx, cy)
                                     self.calib_hover_frames = 0
-
                         elif self.current_calibration_idx < 18:
                             point_names = list(self.calibration_points.keys())
                             current_point_name = point_names[self.current_calibration_idx]
@@ -883,6 +769,7 @@ class PenTracker:
                             if self.calib_cooldown > 0:
                                 self.calib_cooldown -= 1
                                 cv2.circle(frame, (target_x, target_y), 15, (100, 100, 100), 2)
+                                # ⭐ 補回 2：校正時的準備倒數計時文字
                                 cv2.putText(frame, f"Wait: {self.calib_cooldown / 30:.1f}s", (target_x - 40, target_y - 25), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
                             else:
                                 is_hover_step = current_point_name.startswith("hover_")
@@ -890,7 +777,6 @@ class PenTracker:
                                 if dist < 40:
                                     self.calib_hover_frames += 1
                                     cv2.ellipse(frame, (target_x, target_y), (40, 40), -90, 0, int((self.calib_hover_frames / 30) * 360), (0, 255, 0), 4)
-
                                     rise_value = float(rise) if hand_detected else None
                                     if is_hover_step:
                                         self.calibration_collector.add_hover_sample(float(area), rise_value, float(cx), float(cy))
@@ -898,7 +784,6 @@ class PenTracker:
                                         f_tip = (lm8.x * w_f, lm8.y * h_f) if lm8 is not None else None
                                         f_base = (lm6.x * w_f, lm6.y * h_f) if lm6 is not None else None
                                         self.calibration_collector.add_draw_sample(float(area), rise_value, float(cx), float(cy), f_tip, f_base, (cx, cy))
-
                                     if self.calib_hover_frames >= 30:
                                         self.current_calibration_idx += 1
                                         self.calib_hover_frames = 0
@@ -917,6 +802,7 @@ class PenTracker:
         else:
             self._force_pen_up()
 
+        # ⭐ 補回 1：找不到手的紅色警告文字
         if not hand_detected and self.last_pos is None and not is_corner_calib:
             self._force_pen_up()
             self.last_pos = None
@@ -924,11 +810,9 @@ class PenTracker:
 
         if not self.calibration_mode:
             if writing and paper_ready_now:
-                if self.last_pos:
-                    cv2.line(self.paint_canvas, self.last_pos, (cx, cy), (0, 255, 255), 2)
+                if self.last_pos: cv2.line(self.paint_canvas, self.last_pos, (cx, cy), (0, 255, 255), 2)
                 self.last_pos = (cx, cy)
-            elif not writing:
-                self.last_pos = None
+            elif not writing: self.last_pos = None
         else:
             self.last_pos = (cx, cy) if writing else None
 
@@ -939,11 +823,8 @@ class PenTracker:
                 self.history.pop(0)
                 self.idx_history.pop(0)
 
-        if msg.z == 1.0:
-            self.curr_stroke_frames += 1
-        else:
-            self.curr_stroke_frames = 0
-
+        if msg.z == 1.0: self.curr_stroke_frames += 1
+        else: self.curr_stroke_frames = 0
         self.prev_z = msg.z
 
         if self.is_recording:
@@ -952,32 +833,36 @@ class PenTracker:
             cv2.circle(frame, (610, 30), 10, (0, 0, 255), -1)
 
         if self.calibration_mode:
+            cal_text = ""
             if len(self.corner_points) < 4:
-                corner_names = ["Top-Left", "Top-Right", "Bottom-Right", "Bottom-Left"]
-                cal_text = f"Step 0: Point pen at {corner_names[len(self.corner_points)]}"
-                cv2.putText(frame, cal_text, (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+                corner_names = ["左上角 (Top-Left)", "右上角 (Top-Right)", "右下角 (Bottom-Right)", "左下角 (Bottom-Left)"]
+                cal_text = f"Step 0 ({len(self.corner_points)+1}/4): 請用筆尖觸碰畫面設定紙張的【 {corner_names[len(self.corner_points)]} 】"
                 for pt in self.corner_points:
                     cv2.circle(frame, pt, 5, (0, 255, 255), -1)
             else:
                 point_names = list(self.calibration_points.keys())
                 if self.current_calibration_idx < len(point_names):
                     current_point_name = point_names[self.current_calibration_idx]
+                    
                     if current_point_name.startswith("hover_"):
-                        cal_text = f"Step {self.current_calibration_idx + 1}/18: HOVER (懸空停頓)"
-                        hint_color = (255, 0, 255)
+                        cal_text = f"Step {self.current_calibration_idx + 1}/18: 請將筆對準綠圈，懸空停頓 (HOVER)"
                     else:
-                        cal_text = f"Step {self.current_calibration_idx + 1}/18: PRESS (下筆停頓)"
-                        hint_color = (0, 165, 255)
+                        cal_text = f"Step {self.current_calibration_idx + 1}/18: 請將筆對準綠圈，下筆停頓 (PRESS)"
 
                     if self.calib_cooldown > 0:
-                        cal_text = f"Get Ready... Next is: {cal_text}"
-                        hint_color = (0, 255, 255)
-
-                    cv2.putText(frame, cal_text, (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, hint_color, 2)
-                    if self.calib_cooldown == 0:
-                        cv2.circle(frame, self.calibration_points[current_point_name], 15, hint_color, 2)
+                        cal_text = f"準備中... 下一個是: {cal_text}"
                 else:
-                    cv2.putText(frame, "Calibration Done! Saving...", (20, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    cal_text = "校正完成！正在儲存參數..."
+            
+            try:
+                state.app_state.update_result(calibration_prompt=cal_text)
+            except Exception:
+                pass
+        else:
+            try:
+                state.app_state.update_result(calibration_prompt="")
+            except Exception:
+                pass
 
         comb = cv2.add(frame, self.paint_canvas)
         cv2.rectangle(comb, (self.roi_x1, self.roi_y1), (self.roi_x2, self.roi_y2), box_color, 2)

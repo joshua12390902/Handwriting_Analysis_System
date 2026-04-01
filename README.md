@@ -3,89 +3,76 @@
 這是一套以紙本書寫為核心的即時漢字手寫分析系統。  
 系統會透過攝影機擷取使用者在紙上書寫的筆跡，將資料轉成 `(timestamp, x, y, pen_state)` 的軌跡格式，再與標準字資料比對，分析筆畫數、筆順與整體字形是否合理。
 
-除了筆跡分析外，專案也包含：
-- Flask 網頁介面
-- MediaPipe 手部追蹤
-- 筆尖顏色追蹤
-- 書寫區域校正
-- 標準字筆順視覺化
-- Ollama 本地 AI 老師聊天與回饋
-- Jetson Nano 與 Logitech C922 用的 3D 列印支架設計
+## 系統架構
 
-## 專案目前在做什麼
+```
+React 前端 (Vite)          Flask 後端               遠端 Container (RTX 3090)
+localhost:5173       →    localhost:5000       →    140.113.110.42:50052
+                          相機 / MediaPipe /         Ollama + qwen3:14b
+                          筆跡分析 / API              LLM 推論
+```
 
-系統主要流程如下：
+- **前端**：React (Vite)，提供練習介面、聊天室、分析結果顯示
+- **後端**：Flask，負責相機讀取、手部追蹤、筆跡錄製、筆順比對、API 路由
+- **LLM 推論**：Ollama 跑在遠端 Docker container（RTX 3090 GPU），模型為 qwen3:14b
 
-1. [`app.py`](app.py) 啟動 Flask 與追蹤器。
-2. [`tracker/pen_tracker.py`](tracker/pen_tracker.py) 持續讀取相機影像，偵測手與筆尖。
-3. 使用者開始錄製後，系統記錄筆跡資料。
-4. 送出分析後，由 [`compare.py`](compare.py) 和標準字資料做比對。
-5. 分析結果透過 [`state.py`](state.py) 回傳給前端。
-6. [`web/template.py`](web/template.py) 顯示目前題目、影像、結果與聊天介面。
-7. [`llm_chat.py`](llm_chat.py) 提供換字、筆畫問題、提示與 AI 回饋。
+聊天與回饋完全由 LLM 驅動，不再依賴規則式 prompt。LLM 透過 marker 機制（`【設定字：X】`、`【隨機換字】`）控制換字邏輯。
 
 ## 主要功能
 
 - 即時相機畫面顯示
-- 紙張 ROI 偵測與書寫區域檢查
-- MediaPipe 手部追蹤
-- HSV 筆尖顏色追蹤
+- 紙張 ROI 偵測與書寫區域校正
+- MediaPipe 手部追蹤 + HSV 筆尖顏色追蹤
 - 筆跡錄製、復原、清空、送出分析
 - 自動換題與聊天換字
 - 標準筆順圖顯示與錯誤筆畫標示
-- 筆順驗證結果：
-  - `OK`
-  - `ORDER_WRONG`
-  - `WRONG_CHARACTER`
-  - `STROKE_COUNT_MISMATCH`
-- AI 老師提示與鼓勵式回饋
+- 筆順驗證：`OK` / `ORDER_WRONG` / `WRONG_CHARACTER` / `STROKE_COUNT_MISMATCH`
+- AI 老師聊天（LLM 驅動，支援閒聊、換字、筆畫問答）
+- AI 回饋（比對使用者筆跡座標與標準筆跡，給出具體建議）
 - 分析後自動存出 CSV 與使用者筆跡圖到 [`saved_writings/`](saved_writings)
+- 3D 列印支架設計（Jetson Nano + Logitech C922）
 
-## 目前真正有在跑的核心檔案
+## 主要流程
 
-- [`app.py`](app.py)
-  - 專案正式啟動入口。
-  - 現在只保留這一個啟動方式。
+1. [`app.py`](app.py) 啟動 Flask 與追蹤器
+2. [`tracker/pen_tracker.py`](tracker/pen_tracker.py) 持續讀取相機影像，偵測手與筆尖
+3. 使用者開始錄製後，系統記錄筆跡資料
+4. 送出分析後，由 [`compare.py`](compare.py) 和標準字資料做比對
+5. 分析結果透過 [`state.py`](state.py) 回傳給前端
+6. [`llm_chat.py`](llm_chat.py) 提供 AI 聊天與筆跡回饋（透過遠端 Ollama）
+7. React 前端 [`frontend/src/App.jsx`](frontend/src/App.jsx) 顯示所有介面
 
-- [`state.py`](state.py)
-  - 共用執行狀態。
-  - 負責保存目前題目、最新畫面、分析結果、標準字資料與 tracker 參考。
+## 核心檔案
 
-- [`tracker/pen_tracker.py`](tracker/pen_tracker.py)
-  - 專案最核心的執行引擎。
-  - 負責相機讀取、手部與筆尖追蹤、錄製筆跡、校正、切題與送分析。
-
-- [`compare.py`](compare.py)
-  - 筆順驗證核心。
-  - 將使用者筆跡切成筆畫後，和標準字資料做比對。
-
-- [`standard_loader.py`](standard_loader.py)
-  - 載入標準字資料。
-  - 優先讀取 `standard_db/`，找不到時 fallback 到 [`hanzi/`](hanzi)。
-
-- [`llm_chat.py`](llm_chat.py)
-  - 聊天與 AI 回饋模組。
-  - 先用規則處理換字、筆畫數、筆順、提示，再視情況 fallback 給 Ollama。
-
-- [`web/routes.py`](web/routes.py)
-  - Flask API 路由。
-
-- [`web/template.py`](web/template.py)
-  - 內嵌式前端頁面。
-
-- [`web/viz.py`](web/viz.py)
-  - 標準筆順與使用者筆跡的視覺化工具。
+| 檔案 | 說明 |
+|------|------|
+| [`app.py`](app.py) | 啟動入口 |
+| [`state.py`](state.py) | 共用執行狀態（題目、畫面、分析結果） |
+| [`tracker/pen_tracker.py`](tracker/pen_tracker.py) | 相機讀取、手部追蹤、筆跡錄製、校正、送分析 |
+| [`compare.py`](compare.py) | 筆順驗證核心 |
+| [`standard_loader.py`](standard_loader.py) | 載入標準字資料（優先 `standard_db/`，fallback `hanzi/`） |
+| [`llm_chat.py`](llm_chat.py) | LLM 聊天與回饋模組 |
+| [`web/routes.py`](web/routes.py) | Flask API 路由 |
+| [`web/viz.py`](web/viz.py) | 標準筆順與筆跡視覺化 |
+| [`frontend/src/App.jsx`](frontend/src/App.jsx) | React 前端主元件 |
 
 ## 專案結構
 
 ```text
-app.py
-compare.py
-llm_chat.py
-state.py
-standard_loader.py
-requirements.txt
-hand_landmarker.task
+app.py                    # Flask 啟動入口
+compare.py                # 筆順比對
+llm_chat.py               # LLM 聊天與回饋
+state.py                  # 共用狀態
+standard_loader.py        # 標準字載入
+requirements.txt          # Python 套件
+hand_landmarker.task      # MediaPipe 模型
+
+frontend/                 # React 前端 (Vite)
+  src/
+    App.jsx
+    App.css
+  package.json
+  vite.config.js
 
 tracker/
   camera.py
@@ -95,212 +82,154 @@ tracker/
 web/
   __init__.py
   routes.py
-  template.py
+  template.py             # 舊版內嵌前端（保留）
   viz.py
 
-tools/
+tools/                    # 工具腳本
   llm_chat_smoke_test.py
   build_index.py
   calibrate_homography.py
-  cam_*_probe.py
   fetch_hanziwriter.py
-  fill_empty_hanzi.py
   generate_db.py
-  shuffle_user_strokes.py
+  fill_empty_hanzi.py
   visual.py
   visual_hanzi.py
-  test.py
+  shuffle_user_strokes.py
 
-hanzi/
-saved_writings/
-3d_mount/
-hardware_stl/
+hanzi/                    # 字庫 JSON
+saved_writings/           # 分析輸出
+3d_mount/                 # 3D 列印支架
+hardware_stl/             # 早期 STL 檔案
 ```
 
 ## 安裝方式
 
-```powershell
+### Python 後端
+
+```bash
 git clone https://github.com/joshua12390902/Handwriting_Analysis_System.git
 cd Handwriting_Analysis_System
 python -m venv .venv
-.\.venv\Scripts\pip install -r requirements.txt
+pip install -r requirements.txt
+```
+
+### React 前端
+
+```bash
+cd frontend
+npm install
 ```
 
 ## 啟動方式
 
-請直接使用：
+### 1. 確認遠端 Ollama 已啟動
 
-```powershell
+SSH 進 container，在 tmux 中執行：
+
+```bash
+ssh root@140.113.110.42 -p 50002
+tmux attach  # 或 tmux new
+OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_GPU=999 OLLAMA_HOST=0.0.0.0:8888 ollama serve
+```
+
+### 2. 啟動 Flask 後端
+
+```bash
+export OLLAMA_HOST=http://140.113.110.42:50052
 python app.py
 ```
 
-啟動後打開：
+PowerShell：
 
-```text
-http://127.0.0.1:5000
+```powershell
+$env:OLLAMA_HOST="http://140.113.110.42:50052"
+python app.py
 ```
 
-## 相依套件
+後端啟動在 `http://127.0.0.1:5000`。
 
-相依套件定義在 [`requirements.txt`](requirements.txt)：
+### 3. 啟動 React 前端
 
-- Flask
-- NumPy
-- OpenCV
-- Pandas
-- MediaPipe
-- pygrabber
+```bash
+cd frontend
+npm run dev
+```
 
-建議 Python 版本：
-
-- Python 3.10 以上
+前端啟動在 `http://localhost:5173`。
 
 ## LLM 與 Ollama
 
-聊天老師與分析回饋可搭配 Ollama 使用。
+| 環境變數 | 預設值 | 說明 |
+|----------|--------|------|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API 位址 |
+| `OLLAMA_MODEL` | `qwen3:14b` | 使用的模型 |
 
-可設定的環境變數：
+### Port 對照
 
-```powershell
-$env:OLLAMA_HOST="http://localhost:11434"
-$env:OLLAMA_MODEL="qwen2.5:3b"
-```
+| 位置 | Port | 用途 |
+|------|------|------|
+| Container 內 | 8888 | Ollama 監聽 |
+| 主機 | 50052 | 映射到 container 8888 |
+| 主機 | 50002 | SSH 進 container |
+| 你的電腦 | 5000 | Flask 後端 |
+| 你的電腦 | 5173 | Vite dev server |
 
-如果沒有啟動 Ollama：
-- 主分析流程仍然可以使用
-- 聊天中的規則型回覆仍可正常工作
-- 只有需要模型生成的部分會退化
+如果沒有啟動 Ollama，主分析流程仍可使用，AI 聊天與回饋會退化為簡單規則回覆。
 
 ## 基本使用流程
 
-1. 把白紙放進畫面中的書寫框內。
-2. 在網頁中按下 `開始錄製`。
-3. 在紙上書寫目前題目。
-4. 按下 `送出分析`。
-5. 查看分析結果、標準筆順圖與 AI 回饋。
-6. 按 `下一題` 或用聊天切換字。
+1. 把白紙放進畫面中的書寫框內
+2. 在網頁中按下「開始錄製」
+3. 在紙上書寫目前題目
+4. 按下「送出分析」
+5. 查看分析結果、標準筆順圖與 AI 回饋
+6. 按「下一題」或在聊天室切換字
 
 ## 聊天功能
 
-聊天模組目前支援這類輸入：
+聊天完全由 qwen3:14b 驅動，支援：
 
-- `哈`
-- `我想學軌`
-- `這個字幾筆`
-- `提示我這個字`
-- `這好難教我`
-- `隨便換一個字`
-
-系統會優先用規則處理這些需求，讓結果更穩定，不會太依賴模型自由發揮。
-
-## 測試方式
-
-聊天 smoke test：
-
-```powershell
-python tools\llm_chat_smoke_test.py
-```
-
-語法檢查：
-
-```powershell
-python -m py_compile app.py state.py standard_loader.py llm_chat.py tracker\camera.py tracker\calibration.py tracker\pen_tracker.py web\routes.py web\template.py web\viz.py
-```
-
-## 資料
-
-- [`hanzi/`](hanzi)
-  - 專案主要字庫資料。
-  - 每個 `.json` 大致對應一個字的標準筆畫資料。
-
-- `standard_db/`
-  - 若存在，會優先作為已處理的標準字資料來源。
-
-- [`saved_writings/`](saved_writings)
-  - 儲存分析後輸出的 CSV 與使用者筆跡圖。
+- 指定練習字：「我想練永」→ LLM 回覆並附上 `【設定字：永】`
+- 隨機換字：「隨便換一個」→ LLM 回覆 `【隨機換字】`
+- 詢問寫得如何：根據最新分析結果回答
+- 一般閒聊與漢字問答
 
 ## 3D 列印支架
 
-專案也包含給硬體展示用的 3D 列印支架設計，目標硬體為：
+目標硬體：Jetson Nano + Logitech C922 Pro Stream Webcam
 
-- Jetson Nano
-- Logitech C922 Pro Stream Webcam
+主要檔案在 [`3d_mount/`](3d_mount)，詳見 [`3d_mount/README.md`](3d_mount/README.md)。
 
-目前主要 3D 檔案在 [`3d_mount/`](3d_mount)：
+建議列印參數：PETG 或 PLA，層高 0.20mm，壁數 4，填充 30%。
 
-- [`3d_mount/generate_mounts.py`](3d_mount/generate_mounts.py)
-- [`3d_mount/jetson_nano_base.stl`](3d_mount/jetson_nano_base.stl)
-- [`3d_mount/mast_base.stl`](3d_mount/mast_base.stl)
-- [`3d_mount/mast_segment_50mm.stl`](3d_mount/mast_segment_50mm.stl)
-- [`3d_mount/camera_head.stl`](3d_mount/camera_head.stl)
+## 相依套件
 
-目前已確認的尺寸：
+Python（定義在 [`requirements.txt`](requirements.txt)）：
+- Flask, flask-cors
+- NumPy, OpenCV, Pandas
+- MediaPipe, pygrabber
 
-- `jetson_nano_base.stl`: `126 x 136 x 28 mm`
-- `mast_base.stl`: `97 x 36 x 36 mm`
-- `mast_segment_50mm.stl`: `65 x 30 x 50 mm`
-- `camera_head.stl`: `65 x 150 x 26 mm`
+前端：
+- React, Vite
 
-目前設計重點：
-
-- Nano 放置區可用平面：`102 x 82 mm`
-- 柱子外形：`65 x 30 mm`
-- 柱子單段高度：`50 mm`
-
-建議起始列印參數：
-
-- 材料：`PETG` 或 `PLA`
-- 層高：`0.20 mm`
-- 壁數：`4`
-- 填充：`30%`
-
-更細的裝配與列印說明請看 [`3d_mount/README.md`](3d_mount/README.md)。
-
-[`hardware_stl/`](hardware_stl) 目前保留作為較早期或替代版本的 STL 輸出。
+建議 Python 版本：3.10 以上
 
 ## 常用工具腳本
 
-- [`tools/llm_chat_smoke_test.py`](tools/llm_chat_smoke_test.py)
-  - 測試聊天規則是否正常。
-
-- [`tools/build_index.py`](tools/build_index.py)
-  - 建立字庫索引。
-
-- [`tools/fetch_hanziwriter.py`](tools/fetch_hanziwriter.py)
-  - 抓取字庫來源資料。
-
-- [`tools/generate_db.py`](tools/generate_db.py)
-  - 生成標準字資料。
-
-- [`tools/fill_empty_hanzi.py`](tools/fill_empty_hanzi.py)
-  - 補齊或修復 `hanzi/*.json`。
-
-- [`tools/calibrate_homography.py`](tools/calibrate_homography.py)
-  - 獨立校正工具。
-
-- `tools/cam_*_probe.py`
-  - 相機偵測與排查工具。
-
-- [`tools/visual.py`](tools/visual.py)
-  - 視覺化使用者筆跡資料。
-
-- [`tools/visual_hanzi.py`](tools/visual_hanzi.py)
-  - 對照標準字與使用者筆跡。
-
-- [`tools/shuffle_user_strokes.py`](tools/shuffle_user_strokes.py)
-  - 產生錯誤筆順樣本。
+| 腳本 | 說明 |
+|------|------|
+| [`tools/llm_chat_smoke_test.py`](tools/llm_chat_smoke_test.py) | 聊天功能測試 |
+| [`tools/build_index.py`](tools/build_index.py) | 建立字庫索引 |
+| [`tools/fetch_hanziwriter.py`](tools/fetch_hanziwriter.py) | 抓取字庫來源資料 |
+| [`tools/generate_db.py`](tools/generate_db.py) | 生成標準字資料 |
+| [`tools/fill_empty_hanzi.py`](tools/fill_empty_hanzi.py) | 補齊 hanzi/*.json |
+| [`tools/calibrate_homography.py`](tools/calibrate_homography.py) | 獨立校正工具 |
+| [`tools/visual.py`](tools/visual.py) | 視覺化使用者筆跡 |
+| [`tools/visual_hanzi.py`](tools/visual_hanzi.py) | 對照標準字與使用者筆跡 |
 
 ## 已知限制
 
-- 這套系統仍然很吃硬體條件，像相機角度、光線、筆的顏色、紙張位置都會影響效果。
-- [`tracker/pen_tracker.py`](tracker/pen_tracker.py) 目前仍是最硬體耦合、最難拆的小宇宙。
-- 前端仍寫在一個模板檔裡，不是拆成獨立元件式架構。
-- Ollama 目前是單一後端整合，沒有多模型/多後端抽象。
-- 字庫很大，但不代表所有特殊字、特殊寫法都已完全驗證。
-
-## 建議後續方向
-
-- 持續整理 runtime 檔案內的訊息與註解一致性。
-- 若 UI 繼續成長，可把 [`web/template.py`](web/template.py) 拆出來。
-- 增加更多聊天與狀態切換 smoke test。
-- 若系統繼續擴充，建議把 tracker、analysis、chat 拆成更明確的 service 邊界。
+- 系統效果受硬體條件影響（相機角度、光線、筆色、紙張位置）
+- [`tracker/pen_tracker.py`](tracker/pen_tracker.py) 硬體耦合度高
+- Ollama 目前為單一後端，沒有多模型抽象
+- 字庫大但不保證所有特殊字都已驗證
