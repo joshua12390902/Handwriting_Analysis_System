@@ -135,18 +135,10 @@ OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_GPU=999 OLLAMA_HOST=0.0.0.0:8888 ollama serv
 ### 2. 啟動 Flask 後端
 
 ```bash
-export OLLAMA_HOST=http://140.113.110.42:50052
 python app.py
 ```
 
-PowerShell：
-
-```powershell
-$env:OLLAMA_HOST="http://140.113.110.42:50052"
-python app.py
-```
-
-後端啟動在 `http://127.0.0.1:5000`。
+後端啟動在 `http://127.0.0.1:5000`。預設已連接遠端 Ollama（`http://140.113.110.42:50052`）。
 
 ### 3. 啟動 React 前端
 
@@ -161,7 +153,7 @@ npm run dev
 
 | 環境變數 | 預設值 | 說明 |
 |----------|--------|------|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama API 位址 |
+| `OLLAMA_HOST` | `http://140.113.110.42:50052` | 預設遠端 Ollama API 位址，可用環境變數覆蓋 |
 | `OLLAMA_MODEL` | `qwen3:14b` | 使用的模型 |
 
 ### Port 對照

@@ -19,7 +19,7 @@ _BASE_DIR = Path(__file__).resolve().parent
 _HANZI_DIR = _BASE_DIR / "hanzi"
 _STD_DIR = _BASE_DIR / "standard_db"
 
-OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://140.113.110.42:50052")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:14b")
 MAX_TOKENS = 1024
 
