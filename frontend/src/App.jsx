@@ -43,7 +43,7 @@ function App() {
           const isInitial = lastTargetTs === null;
           setLastTargetTs(tData.ts);
           if (!isInitial) {
-            setChatMessages(prev => [...prev, { type: 'set', text: `目前練習字已切換為「${tData.target_char}」。` }]);
+            setChatMessages([{ type: 'set', text: `目前練習字已切換為「${tData.target_char}」。` }]);
           }
         }
 

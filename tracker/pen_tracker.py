@@ -532,7 +532,7 @@ class PenTracker:
             state.app_state.replace_result(result)
             if _LLM_OK:
                 try:
-                    feedback = _llm_chat.get_feedback(result)
+                    feedback = _llm_chat.get_feedback(result, user_strokes=user_strokes, std_strokes=std_strokes)
                     state.app_state.update_result(llm_feedback=feedback, llm_loading=False)
                 except Exception:
                     state.app_state.update_result(llm_loading=False)
