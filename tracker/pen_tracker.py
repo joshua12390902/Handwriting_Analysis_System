@@ -50,6 +50,10 @@ except Exception:
 # ── 設定常數 ──────────────────────────────────────────────────────────
 
 PEN_COLORS = {
+    "orange": {
+        "lower": np.array([0, 168, 145]),
+        "upper": np.array([16, 255, 255]),
+    },
     "blue": {
         "lower": np.array([29, 27, 109]),
         "upper": np.array([110, 143, 228]),
@@ -57,10 +61,6 @@ PEN_COLORS = {
     "yellow": {
         "lower": np.array([19, 128, 138]),
         "upper": np.array([44, 255, 255]),
-    },
-    "orange": {
-        "lower": np.array([0, 168, 145]),
-        "upper": np.array([16, 255, 255]),
     },
     "pink": {
         "lower": np.array([148, 52, 99]),
@@ -263,8 +263,8 @@ class PenTracker:
         self._pen_confirm: int = 0
         self.last_dx: float = -1.0
         self.last_dy: float = 1.0
-        self.hsv_lower = PEN_COLORS["blue"]["lower"]
-        self.hsv_upper = PEN_COLORS["blue"]["upper"]
+        self.hsv_lower = PEN_COLORS["orange"]["lower"]
+        self.hsv_upper = PEN_COLORS["orange"]["upper"]
 
         self.calibration_mode = False
         self.calibration_collector: Optional[CalibrationCollector] = None
@@ -717,8 +717,9 @@ class PenTracker:
 
                     in_bounds = (-20 <= tx <= 660 and -20 <= ty <= 500)
                     area_ok = area < thr
-                    rise_ok = rise < rise_thresh_current
-                    raw_down = in_bounds and area_ok and rise_ok
+                    #rise_ok = rise < rise_thresh_current
+                    #raw_down = in_bounds and area_ok and rise_ok
+                    raw_down = in_bounds and area_ok
                     self._update_pen_hysteresis(raw_down)
 
                     msg.x, msg.y = tx, ty
@@ -728,13 +729,28 @@ class PenTracker:
 
                     cv2.circle(frame, (cx, cy), 10, color, 3)
 
+                    #if self.calibration_mode:
+                    #    cv2.putText(frame, f"Area: {area:.0f}", (cx + 15, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    #    cv2.putText(frame, f"Rise: {rise:.0f}", (cx + 15, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    #else:
+                    #    cv2.putText(frame, f"Area: {area:.0f} / {thr:.0f}", (cx + 15, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    #    cv2.putText(frame, f"Rise: {rise:.0f} / {rise_thresh_current:.0f}", (cx + 15, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    # ⭐ 關鍵修復：加上 if self.calibration_mode: 判斷
+                    
+                    # ⭐ 核心修改 1：校正模式下筆尖固定為紅色，練習模式則根據筆態切換顏色
                     if self.calibration_mode:
+                        color = (0, 0, 255) # 固定紅色
+                    else:
+                        color = (0, 255, 0) if writing else (0, 0, 255)
+
+                    cv2.circle(frame, (cx, cy), 10, color, 3)
+                    
+                    if self.calibration_mode:
+                        # 只有在校正模式下才顯示數值
                         cv2.putText(frame, f"Area: {area:.0f}", (cx + 15, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
                         cv2.putText(frame, f"Rise: {rise:.0f}", (cx + 15, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                    else:
-                        cv2.putText(frame, f"Area: {area:.0f} / {thr:.0f}", (cx + 15, cy - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                        cv2.putText(frame, f"Rise: {rise:.0f} / {rise_thresh_current:.0f}", (cx + 15, cy + 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-
+                    # 平常練習時不顯示任何文字，保持畫面乾淨
+                    
                     if self.calibration_mode and self.calibration_collector is not None:
                         if len(self.corner_points) < 4:
                             if self.stationary_pos is None:
@@ -864,10 +880,31 @@ class PenTracker:
             except Exception:
                 pass
 
+        # --- 找到 loop 函式的結尾部分並替換 ---
+        
+        # 合併原始影像與畫布筆跡
         comb = cv2.add(frame, self.paint_canvas)
-        cv2.rectangle(comb, (self.roi_x1, self.roi_y1), (self.roi_x2, self.roi_y2), box_color, 2)
-        cv2.putText(comb, status_text, (self.roi_x1, self.roi_y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, box_color, 2)
-        cv2.putText(comb, f"Paper: {paper_ratio * 100:.1f}%", (self.roi_x1, self.roi_y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 1)
-        pen_color = (0, 255, 0) if msg.z == 1.0 else (0, 0, 255)
-        cv2.putText(comb, "Pen: DOWN" if msg.z == 1.0 else "Pen: UP", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, pen_color, 2)
+
+        # ⭐ 修改 1：處理綠色框框顏色與文字顯示
+        if self.calibration_mode:
+            # 校正模式下：框框固定為綠色，且不顯示 "Ready!" 或 "Align paper..." 的文字提示
+            display_box_color = (0, 255, 0) 
+            # 不呼叫 cv2.putText(comb, status_text, ...) 
+        else:
+            # 練習模式下：根據紙張就緒狀態切換顏色 (綠/紅)，並顯示狀態文字
+            display_box_color = (0, 255, 0) if paper_ready_now else (0, 0, 255)
+            cv2.putText(comb, status_text, (self.roi_x1, self.roi_y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, display_box_color, 2)
+            # 顯示紙張覆蓋率文字
+            cv2.putText(comb, f"Paper: {paper_ratio * 100:.1f}%", (self.roi_x1, self.roi_y2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, display_box_color, 1)
+
+        # 繪製邊界框
+        cv2.rectangle(comb, (self.roi_x1, self.roi_y1), (self.roi_x2, self.roi_y2), display_box_color, 2)
+        
+        # ⭐ 修改 2：Pen UP/DOWN 狀態文字 (維持您之前的設定：僅在非校正模式顯示)
+        if not self.calibration_mode:
+            pen_status_color = (0, 255, 0) if msg.z == 1.0 else (0, 0, 255)
+            status_label = "Pen: DOWN" if msg.z == 1.0 else "Pen: UP"
+            cv2.putText(comb, status_label, (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, pen_status_color, 2)
+        
+        # 更新全域影像狀態
         state.app_state.set_frame(comb)

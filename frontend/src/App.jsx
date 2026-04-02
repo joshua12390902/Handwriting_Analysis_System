@@ -11,7 +11,7 @@ function App() {
   const [lastTargetTs, setLastTargetTs] = useState(null);
   const [resultStatus, setResultStatus] = useState('WAIT');
   const [resultData, setResultData] = useState({});
-  const [currentColor, setCurrentColor] = useState('blue');
+  const [currentColor, setCurrentColor] = useState('orange');
   const [stdImageTs, setStdImageTs] = useState(0);
 
   // ⭐ 校正提示文字狀態 (這裡負責接收 Python 傳來的文字)
@@ -139,9 +139,9 @@ function App() {
 
   const renderColorPicker = () => (
     <div className="color-picker">
+        <div className={`color-btn c-orange ${currentColor === 'orange' ? 'active' : ''}`} onClick={() => setPenColor('orange')} title="橘色"></div>
         <div className={`color-btn c-blue ${currentColor === 'blue' ? 'active' : ''}`} onClick={() => setPenColor('blue')} title="藍色"></div>
         <div className={`color-btn c-yellow ${currentColor === 'yellow' ? 'active' : ''}`} onClick={() => setPenColor('yellow')} title="黃色"></div>
-        <div className={`color-btn c-orange ${currentColor === 'orange' ? 'active' : ''}`} onClick={() => setPenColor('orange')} title="橘色"></div>
         <div className={`color-btn c-pink ${currentColor === 'pink' ? 'active' : ''}`} onClick={() => setPenColor('pink')} title="粉紅色"></div>
     </div>
   );
@@ -245,9 +245,10 @@ function App() {
           </div>
         </div>
 
+        
+
         <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <img src={`${API_BASE}/video_feed`} className="video-feed" alt="Camera Feed" />
-
             <div className="chat-section">
               <div className="chat-box">
                 <div className="chat-title">告訴 AI 老師你想練什麼字，或問任何漢字問題（回覆僅供參考）</div>
