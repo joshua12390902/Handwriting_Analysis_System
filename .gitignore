@@ -36,6 +36,9 @@ copilot-instructions.md
 # Editor
 .vscode/
 
+# Frontend local cache
+frontend/.vite/
+
 # Standard DB (generated, not source-controlled)
 standard_db/
 standard_db.json

@@ -1,0 +1,12 @@
+flask>=3.0.0
+flask-cors>=4.0.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+pandas>=2.0.0
+mediapipe==0.10.9
+
+# Validated Jetson Nano path:
+# - use Python 3.9 in `.venv39`
+# - install MediaPipe from the prebuilt aarch64 wheel
+#
+# pygrabber is intentionally omitted here because it is Windows-only.

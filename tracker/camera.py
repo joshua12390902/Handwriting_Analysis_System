@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import List, Optional, Tuple
 
 import cv2
@@ -46,8 +47,6 @@ def open_camera(
     current_index: int = -1,
 ) -> Tuple[cv2.VideoCapture, int]:
     """Open the first working camera from the preferred order."""
-    import os
-
     backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None] if os.name == "nt" else [cv2.CAP_V4L2, None]
     if camera_order is None:
         camera_order = build_camera_order(current_index)
