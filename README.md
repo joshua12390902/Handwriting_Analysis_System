@@ -1,15 +1,13 @@
 # 手寫分析系統
 
-這個專案是一套以相機擷取紙上書寫過程、分析筆順與字形，並結合遠端 LLM 回饋的互動式手寫練習系統。
+這個專案是一套以相機擷取紙上書寫、分析筆順與字形，並結合遠端 LLM 給出教學回饋的互動式手寫練習系統。
 
-系統核心流程是：
-- Flask 負責後端 API 與相機流程
-- OpenCV + MediaPipe 負責影像與手部追蹤
-- `compare.py` 負責筆跡與標準字資料比對
-- React 前端負責操作介面
-- Ollama + `qwen3:14b` 跑在遠端 GPU container，提供 AI 聊天與教學回饋
+系統分成三塊：
+- Flask 後端：相機、MediaPipe、筆跡分析、API
+- React 前端：練習介面、結果顯示、AI 聊天
+- 遠端 LLM：Ollama + `qwen3:14b`，跑在 GPU container
 
-## 架構
+## 系統架構
 
 ```text
 React 前端
@@ -23,7 +21,7 @@ Flask 後端
 qwen3:14b（RTX 3090）
 ```
 
-目前預設的遠端 LLM 位址是：
+目前預設的遠端 LLM 位址：
 
 - `http://140.113.110.42:50052`
 
@@ -31,10 +29,11 @@ qwen3:14b（RTX 3090）
 
 - 即時相機畫面擷取
 - 手部追蹤與筆尖定位
-- 筆畫錄製與重設
-- 筆順、字形、筆畫數分析
+- 筆畫錄製、重設、送出分析
+- 筆順、字形、筆畫數比對
 - 標準筆順視覺化
-- AI 書寫回饋與聊天助教
+- AI 書寫回饋
+- AI 聊天助教
 - 書寫結果與 CSV 輸出
 - Jetson Nano + Logitech C922 硬體支架設計
 
@@ -99,24 +98,55 @@ npm run dev
 - Flask：`http://127.0.0.1:5000`
 - Vite：`http://localhost:5173`
 
-## 遠端 Ollama
+## 遠端 Ollama / LLM 部署方式
 
-若要確認遠端 LLM 已啟動，可在主機上進入 container 後執行：
+本專案的 LLM 不是跑在本機，也不是跑在 Jetson Nano。  
+目前實際架構是：
+
+```text
+本機 / Jetson Nano
+  ↓
+http://140.113.110.42:50052
+  ↓
+Docker port mapping
+  ↓
+container:8888
+  ↓
+Ollama
+  ↓
+qwen3:14b（RTX 3090）
+```
+
+也就是：
+- 應用程式只負責送 prompt 與接收回覆
+- 真正的模型推論發生在遠端 container
+- container 內的 Ollama 監聽 `8888`
+- 主機把 `50052` 映射到 container 的 `8888`
+- `50002` 是 SSH 進 container 的埠
+
+### tmux 常駐方式
+
+遠端 Ollama 目前是透過 **container 內的 tmux session 常駐執行**。  
+這一點很重要，因為如果只是直接跑 `ollama serve`，SSH 關掉之後服務就會一起停掉。
+
+若要確認或重新啟動遠端 LLM，可執行：
 
 ```bash
 ssh root@140.113.110.42 -p 50002
-tmux attach  # 或 tmux new
+tmux attach  # 若沒有 session 可用 tmux new
 OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_GPU=999 OLLAMA_HOST=0.0.0.0:8888 ollama serve
 ```
 
-環境變數：
+一般使用者通常不需要進 container；只有在遠端 LLM 服務中斷、需要檢查或重啟時，才需要進去看 tmux。
+
+### 環境變數
 
 | 變數 | 預設值 | 用途 |
 |------|--------|------|
 | `OLLAMA_HOST` | `http://140.113.110.42:50052` | 遠端 Ollama API |
 | `OLLAMA_MODEL` | `qwen3:14b` | 使用模型 |
 
-Port 對照：
+### Port 對照
 
 | 位置 | Port | 用途 |
 |------|------|------|
@@ -128,7 +158,7 @@ Port 對照：
 
 ## Jetson Nano 部署重點
 
-Jetson Nano 已實測可跑通，但**正式做法和一般桌面開發不一樣**。
+Jetson Nano 已實測可跑通，但正式做法和一般桌面開發不同。
 
 ### 已驗證路線
 
@@ -138,15 +168,10 @@ Jetson Nano 已實測可跑通，但**正式做法和一般桌面開發不一樣
 - `pip install mediapipe==0.10.9`
 - 遠端 Ollama：`http://140.113.110.42:50052`
 
-### 重要差異
+### 為什麼 Jetson 走特別路線
 
-1. Jetson Nano 不建議直接用內建 Python 3.6
-2. Jetson Nano 不建議走目前 MediaPipe source build 當正式部署路線
-3. Jetson Nano 不建議直接跑新版 Vite dev server
-
-原因：
-- Python 3.6 太舊
-- MediaPipe source build 會卡到 `GLIBC_2.28`
+- Jetson 內建 Python 3.6 太舊
+- MediaPipe source build 在這個環境上會卡到 `GLIBC_2.28`
 - Jetson 上 Node.js 16 無法直接跑新版 Vite
 
 ### Jetson 依賴
@@ -210,7 +235,6 @@ http://Jetson_IP:5000
 - Logitech C922 Pro Stream Webcam
 
 相關檔案在：
-
 - [`3d_mount/`](3d_mount)
 - [`3d_mount/README.md`](3d_mount/README.md)
 
