@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
-from flask import Response, jsonify, render_template_string, request
+from flask import Response, jsonify, render_template_string, request, send_from_directory
 from flask_cors import CORS
 import standard_loader
 import state
@@ -32,6 +33,8 @@ def _character_exists(char: str) -> bool:
 
 @app.get("/")
 def index():
+    if app.static_folder and (Path(app.static_folder) / "index.html").exists():
+        return send_from_directory(app.static_folder, "index.html")
     return render_template_string(HTML_TEMPLATE)
 
 

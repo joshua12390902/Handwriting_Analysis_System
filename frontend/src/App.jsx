@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import './App.css';
 
-const API_BASE = 'http://127.0.0.1:5000';
+const API_BASE = import.meta.env.DEV ? 'http://127.0.0.1:5000' : '';
 
 function App() {
   const [currentView, setCurrentView] = useState('home');
