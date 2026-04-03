@@ -227,12 +227,12 @@ class PenTracker:
         is_aarch64 = platform.machine().lower() in {"aarch64", "arm64"}
         self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "640"))
         self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "480"))
-        self.loop_sleep_s = float(os.environ.get("TRACKER_LOOP_SLEEP", "0.005" if is_aarch64 else "0.01"))
+        self.loop_sleep_s = float(os.environ.get("TRACKER_LOOP_SLEEP", "0.002" if is_aarch64 else "0.01"))
         self.mediapipe_every_n_frames = max(
-            1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "2" if is_aarch64 else "1"))
+            1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "3" if is_aarch64 else "1"))
         )
         self.mediapipe_input_scale = min(
-            1.0, max(0.25, float(os.environ.get("MEDIAPIPE_INPUT_SCALE", "0.5" if is_aarch64 else "1.0")))
+            1.0, max(0.25, float(os.environ.get("MEDIAPIPE_INPUT_SCALE", "0.35" if is_aarch64 else "1.0")))
         )
         self.draw_hand_overlay = os.environ.get("DRAW_HAND_OVERLAY", "0" if is_aarch64 else "1").lower() not in {
             "0", "false", "no"
