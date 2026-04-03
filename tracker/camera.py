@@ -13,6 +13,31 @@ except Exception:
     FilterGraph = None
 
 
+def configure_capture(
+    cap: cv2.VideoCapture,
+    width: int = 640,
+    height: int = 480,
+) -> None:
+    """Apply low-latency camera settings when supported by the backend."""
+    try:
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    except Exception:
+        pass
+
+    if os.name != "nt":
+        try:
+            cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        except Exception:
+            pass
+
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+    try:
+        cap.set(cv2.CAP_PROP_FPS, 30)
+    except Exception:
+        pass
+
+
 def detect_c922_index() -> Optional[int]:
     """Try to find a Logitech C922 device index on Windows."""
     if FilterGraph is None:
@@ -56,6 +81,8 @@ def open_camera(
     for cam_idx in camera_order:
         for backend in backends:
             cap = cv2.VideoCapture(cam_idx) if backend is None else cv2.VideoCapture(cam_idx, backend)
+            if cap is not None:
+                configure_capture(cap)
             if cap is not None and cap.isOpened():
                 ok, _ = cap.read()
                 if ok:

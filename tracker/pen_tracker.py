@@ -11,6 +11,7 @@ import csv
 import json
 import math
 import os
+import platform
 import random
 import threading
 import time
@@ -30,7 +31,7 @@ except ImportError:
 
 import state
 import standard_loader
-from tracker.camera import build_camera_order, open_camera
+from tracker.camera import build_camera_order, configure_capture, open_camera
 from tracker.calibration import manual_calibrate
 from web.viz import draw_user_strokes
 
@@ -223,6 +224,15 @@ class _Point:
 class PenTracker:
 
     def __init__(self):
+        is_aarch64 = platform.machine().lower() in {"aarch64", "arm64"}
+        self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "640"))
+        self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "480"))
+        self.loop_sleep_s = float(os.environ.get("TRACKER_LOOP_SLEEP", "0.005" if is_aarch64 else "0.01"))
+        self.mediapipe_every_n_frames = max(
+            1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "2" if is_aarch64 else "1"))
+        )
+        self._loop_count = 0
+
         self.is_running = True
         self.cap_lock = threading.Lock()
 
@@ -232,8 +242,7 @@ class PenTracker:
         self.is_paper_ready = False
 
         self.cap, self.current_camera_index = open_camera()
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        configure_capture(self.cap, self.frame_width, self.frame_height)
 
         project_root = os.path.dirname(os.path.dirname(__file__))
         self._h_save_path = os.path.join(project_root, "homography.npy")
@@ -245,6 +254,7 @@ class PenTracker:
 
         self.hand_detector = None
         self._mp_timestamp: int = 0
+        self._last_mp_result = None
         self.mediapipe_ready = False
         self._init_mediapipe()
 
@@ -387,8 +397,7 @@ class PenTracker:
             try:
                 new_cap, new_idx = open_camera(camera_order=scan_order)
             except Exception: return
-            new_cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            new_cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+            configure_capture(new_cap, self.frame_width, self.frame_height)
             with self.cap_lock:
                 old_cap, self.cap = self.cap, new_cap
                 self.current_camera_index = new_idx
@@ -561,11 +570,13 @@ class PenTracker:
         try:
             while self.is_running:
                 self.loop()
-                time.sleep(0.033)
+                if self.loop_sleep_s > 0:
+                    time.sleep(self.loop_sleep_s)
         finally:
             with self.cap_lock: self.cap.release()
 
     def loop(self) -> None:
+        self._loop_count += 1
         with self.cap_lock:
             ret, frame = self.cap.read()
         if not ret: return
@@ -591,13 +602,19 @@ class PenTracker:
         box_color = (0, 255, 0) if paper_ready_now else (0, 0, 255)
         status_text = "Ready! Please write inside." if paper_ready_now else "Align paper inside the box..."
 
-        mp_result = None
+        mp_result = self._last_mp_result
         hand_detected = False
         if self.mediapipe_ready and self.hand_detector is not None:
-            self._mp_timestamp += 33
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-            mp_result = self.hand_detector.detect_for_video(mp_img, self._mp_timestamp)
+            should_run_mediapipe = (
+                self._last_mp_result is None
+                or self._loop_count % self.mediapipe_every_n_frames == 0
+            )
+            if should_run_mediapipe:
+                self._mp_timestamp += 33 * self.mediapipe_every_n_frames
+                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+                mp_result = self.hand_detector.detect_for_video(mp_img, self._mp_timestamp)
+                self._last_mp_result = mp_result
 
         msg = _Point()
         cx = cy = 0

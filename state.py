@@ -62,7 +62,7 @@ class AppState:
 
     def set_frame(self, frame: np.ndarray) -> None:
         with self.lock:
-            self.frame = frame.copy()
+            self.frame = frame
 
     def set_requested_char(self, char: Optional[str]) -> None:
         with self.lock:

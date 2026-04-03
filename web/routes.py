@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import platform
 import time
 from pathlib import Path
 
@@ -22,6 +24,11 @@ try:
     _LLM_AVAILABLE = True
 except Exception:
     _LLM_AVAILABLE = False
+
+
+IS_AARCH64 = platform.machine().lower() in {"aarch64", "arm64"}
+MJPEG_QUALITY = int(os.environ.get("MJPEG_QUALITY", "40" if IS_AARCH64 else "50"))
+MJPEG_SLEEP_S = float(os.environ.get("MJPEG_STREAM_SLEEP", "0.01" if IS_AARCH64 else "0.04"))
 
 
 def _character_exists(char: str) -> bool:
@@ -59,10 +66,11 @@ def _gen_mjpeg():
         if frame is None:
             time.sleep(0.05)
             continue
-        ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
+        ok, jpg = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), MJPEG_QUALITY])
         if ok:
             yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n"
-        time.sleep(0.04)
+        if MJPEG_SLEEP_S > 0:
+            time.sleep(MJPEG_SLEEP_S)
 
 
 @app.get("/std_strokes.png")
