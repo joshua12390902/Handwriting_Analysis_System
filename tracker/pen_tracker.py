@@ -231,6 +231,12 @@ class PenTracker:
         self.mediapipe_every_n_frames = max(
             1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "2" if is_aarch64 else "1"))
         )
+        self.mediapipe_input_scale = min(
+            1.0, max(0.25, float(os.environ.get("MEDIAPIPE_INPUT_SCALE", "0.5" if is_aarch64 else "1.0")))
+        )
+        self.draw_hand_overlay = os.environ.get("DRAW_HAND_OVERLAY", "0" if is_aarch64 else "1").lower() not in {
+            "0", "false", "no"
+        }
         self._loop_count = 0
 
         self.is_running = True
@@ -611,7 +617,16 @@ class PenTracker:
             )
             if should_run_mediapipe:
                 self._mp_timestamp += 33 * self.mediapipe_every_n_frames
-                rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                mp_frame = frame
+                if self.mediapipe_input_scale < 0.999:
+                    mp_frame = cv2.resize(
+                        frame,
+                        None,
+                        fx=self.mediapipe_input_scale,
+                        fy=self.mediapipe_input_scale,
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+                rgb = cv2.cvtColor(mp_frame, cv2.COLOR_BGR2RGB)
                 mp_img = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
                 mp_result = self.hand_detector.detect_for_video(mp_img, self._mp_timestamp)
                 self._last_mp_result = mp_result
@@ -642,11 +657,19 @@ class PenTracker:
             fy = int(lm8.y * h_f + dy * PEN_EXTEND)
             rise = self._calc_back_finger_rise(landmarks, h_f)
             has_search_center = True
-            for a, b in self.HAND_CONNECTIONS:
-                la, lb = landmarks[a], landmarks[b]
-                cv2.line(frame, (int(la.x * w_f), int(la.y * h_f)), (int(lb.x * w_f), int(lb.y * h_f)), (200, 200, 200), 1, cv2.LINE_AA)
-            for lm in landmarks:
-                cv2.circle(frame, (int(lm.x * w_f), int(lm.y * h_f)), 3, (255, 255, 255), -1)
+            if self.draw_hand_overlay:
+                for a, b in self.HAND_CONNECTIONS:
+                    la, lb = landmarks[a], landmarks[b]
+                    cv2.line(
+                        frame,
+                        (int(la.x * w_f), int(la.y * h_f)),
+                        (int(lb.x * w_f), int(lb.y * h_f)),
+                        (200, 200, 200),
+                        1,
+                        cv2.LINE_AA,
+                    )
+                for lm in landmarks:
+                    cv2.circle(frame, (int(lm.x * w_f), int(lm.y * h_f)), 3, (255, 255, 255), -1)
 
             cv2.circle(frame, (fx, fy), search_radius, (255, 105, 180), 2)
             cv2.putText(frame, "AI Tracking", (fx - 45, fy - search_radius - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 105, 180), 2)
