@@ -885,9 +885,9 @@ class PenTracker:
                     current_point_name = point_names[self.current_calibration_idx]
                     
                     if current_point_name.startswith("hover_"):
-                        cal_text = f"Step {self.current_calibration_idx + 1}/18: 請將筆對準綠圈，懸空停頓 (HOVER)"
+                        cal_text = f"Step {self.current_calibration_idx + 1}/18: 請將筆對準灰圈，懸空停頓 (HOVER)"
                     else:
-                        cal_text = f"Step {self.current_calibration_idx + 1}/18: 請將筆對準綠圈，下筆停頓 (PRESS)"
+                        cal_text = f"Step {self.current_calibration_idx + 1}/18: 請將筆對準灰圈，下筆停頓 (PRESS)"
 
                     if self.calib_cooldown > 0:
                         cal_text = f"準備中... 下一個是: {cal_text}"
