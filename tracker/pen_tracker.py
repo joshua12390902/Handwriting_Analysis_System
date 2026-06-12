@@ -299,8 +299,11 @@ class PenTracker:
         self.roi_area = (self.roi_x2 - self.roi_x1) * (self.roi_y2 - self.roi_y1)
         self.is_paper_ready = False
 
-        self.cap, self.current_camera_index = open_camera()
-        configure_capture(self.cap, self.frame_width, self.frame_height)
+        # Open directly at the target resolution (must be set before the first
+        # read or V4L2 keeps the camera at its initial format).
+        self.cap, self.current_camera_index = open_camera(
+            width=self.frame_width, height=self.frame_height
+        )
         # Drain the camera in the background so loop() always gets the newest frame.
         self._grabber = FreshestFrame(self)
         self._grabber.start()
@@ -461,9 +464,10 @@ class PenTracker:
             scan_order = [i for i in scan_order if i != self.current_camera_index]
             if not scan_order: return
             try:
-                new_cap, new_idx = open_camera(camera_order=scan_order)
+                new_cap, new_idx = open_camera(
+                    camera_order=scan_order, width=self.frame_width, height=self.frame_height
+                )
             except Exception: return
-            configure_capture(new_cap, self.frame_width, self.frame_height)
             with self.cap_lock:
                 old_cap, self.cap = self.cap, new_cap
                 self.current_camera_index = new_idx

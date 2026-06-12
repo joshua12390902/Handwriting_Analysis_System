@@ -85,8 +85,15 @@ def build_camera_order(current_index: int = -1) -> List[int]:
 def open_camera(
     camera_order: Optional[List[int]] = None,
     current_index: int = -1,
+    width: int = 640,
+    height: int = 480,
 ) -> Tuple[cv2.VideoCapture, int]:
-    """Open the first working camera from the preferred order."""
+    """Open the first working camera from the preferred order.
+
+    The target resolution is applied BEFORE the first read: V4L2 locks the
+    pixel format once a frame is grabbed, so setting width/height afterwards is
+    silently ignored (the camera stays at whatever it first negotiated).
+    """
     backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None] if os.name == "nt" else [cv2.CAP_V4L2, None]
     if camera_order is None:
         camera_order = build_camera_order(current_index)
@@ -97,7 +104,7 @@ def open_camera(
         for backend in backends:
             cap = cv2.VideoCapture(cam_idx) if backend is None else cv2.VideoCapture(cam_idx, backend)
             if cap is not None:
-                configure_capture(cap)
+                configure_capture(cap, width, height)
             if cap is not None and cap.isOpened():
                 ok, _ = cap.read()
                 if ok:
