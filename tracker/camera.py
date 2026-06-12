@@ -19,11 +19,10 @@ def configure_capture(
     height: int = 480,
 ) -> None:
     """Apply low-latency camera settings when supported by the backend."""
-    try:
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    except Exception:
-        pass
-
+    # Set the pixel format + resolution FIRST, in exactly this order. On V4L2,
+    # setting BUFFERSIZE (or FPS) before the format locks the camera at its
+    # default 640x480 and the later width/height requests are ignored. The bare
+    # FOURCC -> WIDTH -> HEIGHT sequence is verified to negotiate 720p on the C922.
     if os.name != "nt":
         try:
             cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
@@ -32,8 +31,14 @@ def configure_capture(
 
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
+
+    # Auxiliary settings AFTER the format is fixed, so they can't reset it.
     try:
         cap.set(cv2.CAP_PROP_FPS, 30)
+    except Exception:
+        pass
+    try:
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
     except Exception:
         pass
 
