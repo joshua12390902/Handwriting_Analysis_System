@@ -393,8 +393,13 @@ class PenTracker:
     def _load_calibration_params(self) -> None:
         global AREA_COEFFS, RISE_COEFFS, PEN_EXTEND
         if not os.path.exists(CALIB_FILE_PATH):
-            self.roi_x1, self.roi_y1 = 50, 50
-            self.roi_x2, self.roi_y2 = 590, 430
+            # Scale the default ROI to the actual frame size (the old hardcoded
+            # 50,50,590,430 was for 640x480 and shrank to the top-left corner at
+            # higher resolutions). This overrode the __init__ ROI, hence the bug.
+            self.roi_x1 = int(self.frame_width * 50 / 640)
+            self.roi_y1 = int(self.frame_height * 50 / 480)
+            self.roi_x2 = int(self.frame_width * 590 / 640)
+            self.roi_y2 = int(self.frame_height * 430 / 480)
             self.roi_area = (self.roi_x2 - self.roi_x1) * (self.roi_y2 - self.roi_y1)
             AREA_COEFFS = [0.0, 0.0, 400.0]
             RISE_COEFFS = [0.0, 0.0, -105.0]
