@@ -219,20 +219,63 @@ class _Point:
         self.x, self.y, self.z = float(x), float(y), float(z)
 
 
+# ── FreshestFrame grabber ─────────────────────────────────────────────
+# The V4L2/MJPG backend on Jetson ignores CAP_PROP_BUFFERSIZE=1, so a single
+# in-loop cap.read() returns the OLDEST queued kernel buffer. When one loop()
+# pass is slower than the camera frame interval, that queue grows and the feed
+# falls progressively further behind reality. This daemon thread continuously
+# drains the camera and keeps only the newest frame, so the consumer always
+# processes a fresh frame regardless of how slow loop() is.
+class FreshestFrame(threading.Thread):
+    def __init__(self, tracker: "PenTracker"):
+        super().__init__(daemon=True)
+        self._t = tracker
+        self._lock = threading.Lock()
+        self._latest = None
+        self._new = threading.Event()
+        self.running = True
+
+    def run(self) -> None:
+        while self.running and self._t.is_running:
+            # Hold cap_lock only for the read (same as the old in-loop read),
+            # so trigger_switch_camera's atomic cap swap stays safe.
+            with self._t.cap_lock:
+                ret, frame = self._t.cap.read()
+            if not ret or frame is None:
+                time.sleep(0.005)
+                continue
+            with self._lock:
+                self._latest = frame
+            self._new.set()
+
+    def read(self, timeout: float = 0.5):
+        self._new.wait(timeout)
+        with self._lock:
+            frame = self._latest
+            self._new.clear()
+        return frame is not None, frame
+
+    def stop(self) -> None:
+        self.running = False
+
+
 # ── PenTracker ────────────────────────────────────────────────────────
 
 class PenTracker:
 
     def __init__(self):
         is_aarch64 = platform.machine().lower() in {"aarch64", "arm64"}
-        # Capture at 720p for a sharp preview. Orin Nano handles this easily;
-        # the old Jetson Nano defaults (640x480 + heavy throttling) are gone.
-        self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "1280"))
-        self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "720"))
+        # 960x540 is a balanced default: noticeably sharper than the old Nano's
+        # 640x480 but far lighter than 720p, so per-frame CV stays cheap and the
+        # processing loop keeps up with the camera (less latency).
+        self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "960"))
+        self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "540"))
         self.loop_sleep_s = float(os.environ.get("TRACKER_LOOP_SLEEP", "0.002" if is_aarch64 else "0.01"))
-        # Track every frame (no frame-skipping) so the pen tip stays in sync.
+        # Run MediaPipe every 2nd frame on aarch64 so inference doesn't gate the
+        # capture/publish cadence; the per-frame colour tracker carries between
+        # inferences and the last hand result is reused.
         self.mediapipe_every_n_frames = max(
-            1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "1"))
+            1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "2" if is_aarch64 else "1"))
         )
         # Feed MediaPipe a downscaled copy (0.5 of 720p = 640x360): fast tracking
         # while the preview stays full-res. Raise toward 1.0 if you want more accuracy.
@@ -258,6 +301,9 @@ class PenTracker:
 
         self.cap, self.current_camera_index = open_camera()
         configure_capture(self.cap, self.frame_width, self.frame_height)
+        # Drain the camera in the background so loop() always gets the newest frame.
+        self._grabber = FreshestFrame(self)
+        self._grabber.start()
 
         project_root = os.path.dirname(os.path.dirname(__file__))
         self._h_save_path = os.path.join(project_root, "homography.npy")
@@ -588,13 +634,14 @@ class PenTracker:
                 if self.loop_sleep_s > 0:
                     time.sleep(self.loop_sleep_s)
         finally:
+            self._grabber.stop()
+            self._grabber.join(timeout=1.0)
             with self.cap_lock: self.cap.release()
 
     def loop(self) -> None:
         self._loop_count += 1
-        with self.cap_lock:
-            ret, frame = self.cap.read()
-        if not ret: return
+        ret, frame = self._grabber.read()
+        if not ret or frame is None: return
         frame = cv2.flip(frame, -1)
 
         if self.paint_canvas is None or self.paint_canvas.shape != frame.shape:
@@ -733,7 +780,7 @@ class PenTracker:
                 finger_mask = search_mask
 
             # 3. 接下來進行顏色偵測（以下保持原樣）
-            hsv = cv2.cvtColor(frame.copy(), cv2.COLOR_BGR2HSV)
+            hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)  # cvtColor doesn't mutate input; copy was pure overhead
             color_mask = cv2.inRange(hsv, self.hsv_lower, self.hsv_upper)
             mask = cv2.bitwise_and(color_mask, finger_mask)
             mask = cv2.erode(mask, None, iterations=2)
