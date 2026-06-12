@@ -225,16 +225,21 @@ class PenTracker:
 
     def __init__(self):
         is_aarch64 = platform.machine().lower() in {"aarch64", "arm64"}
-        self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "640"))
-        self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "480"))
+        # Capture at 720p for a sharp preview. Orin Nano handles this easily;
+        # the old Jetson Nano defaults (640x480 + heavy throttling) are gone.
+        self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "1280"))
+        self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "720"))
         self.loop_sleep_s = float(os.environ.get("TRACKER_LOOP_SLEEP", "0.002" if is_aarch64 else "0.01"))
+        # Track every frame (no frame-skipping) so the pen tip stays in sync.
         self.mediapipe_every_n_frames = max(
-            1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "3" if is_aarch64 else "1"))
+            1, int(os.environ.get("MEDIAPIPE_EVERY_N_FRAMES", "1"))
         )
+        # Feed MediaPipe a downscaled copy (0.5 of 720p = 640x360): fast tracking
+        # while the preview stays full-res. Raise toward 1.0 if you want more accuracy.
         self.mediapipe_input_scale = min(
-            1.0, max(0.25, float(os.environ.get("MEDIAPIPE_INPUT_SCALE", "0.35" if is_aarch64 else "1.0")))
+            1.0, max(0.25, float(os.environ.get("MEDIAPIPE_INPUT_SCALE", "0.5" if is_aarch64 else "1.0")))
         )
-        self.draw_hand_overlay = os.environ.get("DRAW_HAND_OVERLAY", "0" if is_aarch64 else "1").lower() not in {
+        self.draw_hand_overlay = os.environ.get("DRAW_HAND_OVERLAY", "1").lower() not in {
             "0", "false", "no"
         }
         self._loop_count = 0
@@ -242,8 +247,12 @@ class PenTracker:
         self.is_running = True
         self.cap_lock = threading.Lock()
 
-        self.roi_x1, self.roi_y1 = 50, 50
-        self.roi_x2, self.roi_y2 = 590, 430
+        # ROI (paper area) scales with frame size — originally tuned for 640x480,
+        # so it stays in the same relative position at any resolution.
+        self.roi_x1 = int(self.frame_width * 50 / 640)
+        self.roi_y1 = int(self.frame_height * 50 / 480)
+        self.roi_x2 = int(self.frame_width * 590 / 640)
+        self.roi_y2 = int(self.frame_height * 430 / 480)
         self.roi_area = (self.roi_x2 - self.roi_x1) * (self.roi_y2 - self.roi_y1)
         self.is_paper_ready = False
 

@@ -27,7 +27,7 @@ except Exception:
 
 
 IS_AARCH64 = platform.machine().lower() in {"aarch64", "arm64"}
-MJPEG_QUALITY = int(os.environ.get("MJPEG_QUALITY", "30" if IS_AARCH64 else "50"))
+MJPEG_QUALITY = int(os.environ.get("MJPEG_QUALITY", "80"))
 MJPEG_SLEEP_S = float(os.environ.get("MJPEG_STREAM_SLEEP", "0.005" if IS_AARCH64 else "0.04"))
 
 
