@@ -265,11 +265,11 @@ class PenTracker:
 
     def __init__(self):
         is_aarch64 = platform.machine().lower() in {"aarch64", "arm64"}
-        # 960x540 is a balanced default: noticeably sharper than the old Nano's
-        # 640x480 but far lighter than 720p, so per-frame CV stays cheap and the
-        # processing loop keeps up with the camera (less latency).
-        self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "960"))
-        self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "540"))
+        # 1280x720: a native C922 MJPG mode (960x540 is NOT supported and silently
+        # falls back to 640x480). The FreshestFrame grab thread keeps latency
+        # bounded at this resolution, so the preview is sharp without the old lag.
+        self.frame_width = int(os.environ.get("CAMERA_FRAME_WIDTH", "1280"))
+        self.frame_height = int(os.environ.get("CAMERA_FRAME_HEIGHT", "720"))
         self.loop_sleep_s = float(os.environ.get("TRACKER_LOOP_SLEEP", "0.002" if is_aarch64 else "0.01"))
         # Run MediaPipe every 2nd frame on aarch64 so inference doesn't gate the
         # capture/publish cadence; the per-frame colour tracker carries between
