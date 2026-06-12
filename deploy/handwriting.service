@@ -1,0 +1,25 @@
+[Unit]
+# systemd USER service for the Flask/tracker backend.
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/handwriting.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now handwriting.service
+#   sudo loginctl enable-linger $USER     # so it runs without an open SSH session
+# Logs: journalctl --user -u handwriting -f
+Description=Handwriting Analysis backend (Flask + camera tracker)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Handwriting_Analysis_System
+ExecStart=%h/Handwriting_Analysis_System/.venv/bin/python app.py
+# Auto-recover from any unhandled tracker/cv2 exception mid-demo.
+Restart=always
+RestartSec=2
+# Performance defaults for the Orin Nano (tuned values; override here if needed).
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,13 @@
+[Desktop Entry]
+# Desktop-session autostart: launches the kiosk browser after login.
+# Install:
+#   chmod +x ~/Handwriting_Analysis_System/deploy/start-kiosk.sh
+#   mkdir -p ~/.config/autostart
+#   cp deploy/handwriting-kiosk.desktop ~/.config/autostart/
+# Also enable desktop auto-login (GNOME: Settings > Users > Automatic Login)
+# so this fires on boot without typing a password.
+Type=Application
+Name=Handwriting Kiosk
+Exec=/home/penyi/Handwriting_Analysis_System/deploy/start-kiosk.sh
+X-GNOME-Autostart-enabled=true
+Terminal=false

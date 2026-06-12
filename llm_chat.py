@@ -21,6 +21,9 @@ _STD_DIR = _BASE_DIR / "standard_db"
 
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://140.113.110.42:50052")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:14b")
+# Seconds before giving up on the remote LLM (then we fall back to rule-based
+# feedback). Default 8s keeps the UI responsive when Ollama is unreachable.
+_OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "8"))
 MAX_TOKENS = 1024
 
 
@@ -104,7 +107,10 @@ def _call_ollama(messages: List[Dict[str, str]]) -> str:
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:
+        # Short timeout so an unreachable Ollama (e.g. off the lab network at a
+        # demo) degrades to rule-based feedback in seconds instead of freezing a
+        # Flask worker for two minutes. Override with OLLAMA_TIMEOUT if needed.
+        with urllib.request.urlopen(request, timeout=_OLLAMA_TIMEOUT) as response:
             data = json.loads(response.read().decode("utf-8"))
             raw = data["message"]["content"]
             return _strip_think_tags(raw)

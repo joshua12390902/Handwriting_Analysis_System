@@ -37,6 +37,18 @@ def configure_capture(
     except Exception:
         pass
 
+    # Log what V4L2 actually negotiated. If this prints YUYV / a low fps instead
+    # of MJPG @ 30, that pixel-format fallback (not the app) is the fps bottleneck.
+    try:
+        fourcc_int = int(cap.get(cv2.CAP_PROP_FOURCC))
+        fourcc = "".join(chr((fourcc_int >> (8 * i)) & 0xFF) for i in range(4))
+        aw = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        ah = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        afps = cap.get(cv2.CAP_PROP_FPS)
+        print(f"[INFO] Camera negotiated: {aw}x{ah} @ {afps:.0f}fps fourcc={fourcc!r}")
+    except Exception:
+        pass
+
 
 def detect_c922_index() -> Optional[int]:
     """Try to find a Logitech C922 device index on Windows."""
@@ -59,7 +71,10 @@ def build_camera_order(current_index: int = -1) -> List[int]:
     if detected is not None:
         base = [detected] + [i for i in range(5) if i != detected]
     else:
-        base = [1, 2, 3, 4, 0]
+        # Probe 0 first: on Jetson/Linux the C922 is /dev/video0, so the old
+        # [1,2,3,4,0] order wasted seconds probing nonexistent indices and
+        # printed scary V4L2 warnings before the real camera opened.
+        base = [0, 1, 2, 3, 4]
 
     if current_index in base:
         pos = base.index(current_index)
