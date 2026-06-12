@@ -811,7 +811,10 @@ class PenTracker:
                     thr = max(50.0, thr)
                     rise_thresh_current = RISE_COEFFS[0] * cx + RISE_COEFFS[1] * cy + RISE_COEFFS[2]
 
-                    in_bounds = (-20 <= tx <= 660 and -20 <= ty <= 500)
+                    # Bounds follow the frame size (+20px margin). Hardcoding 660/500
+                    # assumed 640x480 and silently killed pen-down on the right/bottom
+                    # of the paper once capture resolution changed.
+                    in_bounds = (-20 <= tx <= self.frame_width + 20 and -20 <= ty <= self.frame_height + 20)
                     area_ok = area < thr
                     rise_ok = rise < rise_thresh_current
                     raw_down = in_bounds and area_ok and rise_ok
