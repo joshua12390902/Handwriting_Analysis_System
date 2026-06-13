@@ -23,7 +23,7 @@ OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://140.113.110.42:50052")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:14b")
 # Seconds before giving up on the remote LLM (then we fall back to rule-based
 # feedback). Default 8s keeps the UI responsive when Ollama is unreachable.
-_OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "8"))
+_OLLAMA_TIMEOUT = int(os.environ.get("OLLAMA_TIMEOUT", "20"))
 MAX_TOKENS = 1024
 
 
