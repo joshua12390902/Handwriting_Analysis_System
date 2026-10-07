@@ -21,9 +21,7 @@ Flask 後端
 qwen3:14b（RTX 3090）
 ```
 
-目前預設的遠端 LLM 位址：
-
-- `http://140.113.110.42:50052`
+遠端 LLM 位址請以環境變數 `OLLAMA_HOST` 設定（見下方「環境變數」）。
 
 ## 主要功能
 
@@ -106,7 +104,7 @@ npm run dev
 ```text
 本機 / Jetson Nano
   ↓
-http://140.113.110.42:50052
+$OLLAMA_HOST（遠端 GPU 伺服器）
   ↓
 Docker port mapping
   ↓
@@ -121,8 +119,7 @@ qwen3:14b（RTX 3090）
 - 應用程式只負責送 prompt 與接收回覆
 - 真正的模型推論發生在遠端 container
 - container 內的 Ollama 監聽 `8888`
-- 主機把 `50052` 映射到 container 的 `8888`
-- `50002` 是 SSH 進 container 的埠
+- 主機以 Docker port mapping 將對外 port 映射到 container 的 `8888`
 
 ### tmux 常駐方式
 
@@ -132,7 +129,7 @@ qwen3:14b（RTX 3090）
 若要確認或重新啟動遠端 LLM，可執行：
 
 ```bash
-ssh root@140.113.110.42 -p 50002
+ssh <user>@<GPU 伺服器> -p <SSH port>   # 連線資訊請洽實驗室管理員
 tmux attach  # 若沒有 session 可用 tmux new
 OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_GPU=999 OLLAMA_HOST=0.0.0.0:8888 ollama serve
 ```
@@ -143,7 +140,7 @@ OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_GPU=999 OLLAMA_HOST=0.0.0.0:8888 ollama serv
 
 | 變數 | 預設值 | 用途 |
 |------|--------|------|
-| `OLLAMA_HOST` | `http://140.113.110.42:50052` | 遠端 Ollama API |
+| `OLLAMA_HOST` | `http://<host>:<port>` | 遠端 Ollama API 位址（請自行設定） |
 | `OLLAMA_MODEL` | `qwen3:14b` | 使用模型 |
 
 ### Port 對照
@@ -151,8 +148,6 @@ OLLAMA_FLASH_ATTENTION=1 OLLAMA_NUM_GPU=999 OLLAMA_HOST=0.0.0.0:8888 ollama serv
 | 位置 | Port | 用途 |
 |------|------|------|
 | Container 內 | 8888 | Ollama 監聽 |
-| 主機 | 50052 | 映射到 container 8888 |
-| 主機 | 50002 | SSH 進 container |
 | 本地後端 | 5000 | Flask |
 | 本地前端 | 5173 | Vite dev server |
 
@@ -166,7 +161,7 @@ Jetson Nano 已實測可跑通，但正式做法和一般桌面開發不同。
 - Python 3.9.19
 - 虛擬環境：`.venv39`
 - `pip install mediapipe==0.10.9`
-- 遠端 Ollama：`http://140.113.110.42:50052`
+- 遠端 Ollama：以 `OLLAMA_HOST` 指定
 
 ### 為什麼 Jetson 走特別路線
 
